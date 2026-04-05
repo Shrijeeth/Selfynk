@@ -1,14 +1,14 @@
 .PHONY: format check mypy run
 
 format:
-	ruff format app
-	ruff check --fix app
+	uv run ruff format app
+	uv run ruff check --fix app
 
 check:
-	ruff check app
+	uv run ruff check app
 
 mypy:
-	mypy app
+	uv run mypy app
 
 run:
-	uvicorn app.main:app --reload
+	uv run uvicorn app.main:app --reload
