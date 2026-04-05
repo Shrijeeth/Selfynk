@@ -1,0 +1,25 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        language: system
+        entry: uv run --project backend ruff format
+        types: [python]
+        files: ^backend/
+      
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: uv run --project backend ruff check --fix
+        types: [python]
+        files: ^backend/
+
+      - id: mypy
+        name: mypy
+        language: system
+        entry: uv run --project backend mypy
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+        args: ["backend/app/"]
