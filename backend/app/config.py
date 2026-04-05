@@ -1,3 +1,7 @@
+"""
+Application configuration and settings management.
+"""
+
 from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
