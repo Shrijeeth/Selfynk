@@ -6,6 +6,9 @@ from app.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Handle startup and shutdown events for the application.
+    """
     # Initialize database tables and start-up routines
     # We will import create_db_and_tables from app.database in the next step
     yield
@@ -31,4 +34,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
+    """
+    Health check endpoint to verify that the API is running.
+    """
     return {"status": "ok"}
