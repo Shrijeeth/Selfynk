@@ -3,15 +3,18 @@ Main entry point for the Selfynk API application.
 Handles application initialization, middleware setup, and base routing.
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.config import settings
 from app.database import create_db_and_tables
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     Handle startup and shutdown events for the application.
     """
@@ -39,7 +42,7 @@ app.add_middleware(
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     """
     Health check endpoint to verify that the API is running.
     """

@@ -3,13 +3,13 @@ Models for representing a user's journal entries and inputs.
 """
 
 from datetime import datetime
-from typing import Optional
-from enum import Enum
-from sqlmodel import SQLModel, Field, Column
+from enum import StrEnum
+
 from sqlalchemy import JSON
+from sqlmodel import Column, Field, SQLModel
 
 
-class InputMode(str, Enum):
+class InputMode(StrEnum):
     """
     Enum representing different input formats for journaling.
     """
@@ -21,7 +21,7 @@ class InputMode(str, Enum):
     REVIEW = "review"  # Weekly Brand Review
 
 
-class Emotion(str, Enum):
+class Emotion(StrEnum):
     """
     Enum representing user emotional state for an entry.
     """
@@ -36,14 +36,14 @@ class InputEntry(SQLModel, table=True):
     Represents a distinct user entry or activity log.
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     mode: InputMode = InputMode.JOURNAL
     content: str  # Main text content
     context_tags: list[str] = Field(default=[], sa_column=Column(JSON))
     # ^ meeting, interview, presentation, 1:1, learning, content-creation
-    emotion: Optional[Emotion] = None
-    alignment_score: Optional[int] = None  # 1-10 (pulse mode only)
+    emotion: Emotion | None = None
+    alignment_score: int | None = None  # 1-10 (pulse mode only)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_analyzed: bool = False
-    analysis_id: Optional[int] = Field(default=None, foreign_key="analysis.id")
+    analysis_id: int | None = Field(default=None, foreign_key="analysis.id")

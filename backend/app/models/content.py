@@ -3,12 +3,12 @@ Models for representing generated personal brand content.
 """
 
 from datetime import datetime
-from enum import Enum
-from typing import Optional
-from sqlmodel import SQLModel, Field
+from enum import StrEnum
+
+from sqlmodel import Field, SQLModel
 
 
-class ContentPlatform(str, Enum):
+class ContentPlatform(StrEnum):
     """
     Enum representing various content compilation target platforms.
     """
@@ -26,8 +26,8 @@ class GeneratedContent(SQLModel, table=True):
     Represents content generated from a user's inputs tailored for a specific platform.
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    source_entry_id: Optional[int] = Field(default=None, foreign_key="inputentry.id")
+    id: int | None = Field(default=None, primary_key=True)
+    source_entry_id: int | None = Field(default=None, foreign_key="inputentry.id")
     platform: ContentPlatform
     content: str
     status: str = "draft"  # draft / archived
