@@ -3,14 +3,14 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { 
-  BarChart2, 
-  BookOpen, 
-  Home, 
-  Settings, 
-  Share2, 
+import {
+  BarChart2,
+  BookOpen,
+  Home,
+  Settings,
+  Share2,
   Users,
-  PenTool
+  PenTool,
 } from "lucide-react"
 
 const NAV_ITEMS = [
@@ -27,13 +27,15 @@ export function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="fixed inset-y-0 left-0 w-64 border-r bg-background hidden md:flex flex-col z-40">
+    <aside className="bg-background fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r md:flex">
       <div className="flex h-16 shrink-0 items-center border-b px-6">
-        <span className="font-bold text-xl tracking-tight">Selfynk</span>
+        <span className="text-xl font-bold tracking-tight">Selfynk</span>
       </div>
-      <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-4">
         {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href || (pathname?.startsWith(item.href + '/') && item.href !== '/')
+          const isActive =
+            pathname === item.href ||
+            (pathname?.startsWith(item.href + "/") && item.href !== "/")
           return (
             <Link
               key={item.href}

@@ -23,3 +23,27 @@ repos:
         files: ^backend/
         pass_filenames: false
         args: ["backend/app/"]
+
+      - id: frontend-format
+        name: frontend format
+        language: system
+        entry: npm run format --prefix frontend
+        types_or: [javascript, jsx, ts, tsx, json, css]
+        files: ^frontend/
+        pass_filenames: false
+
+      - id: frontend-lint
+        name: frontend lint
+        language: system
+        entry: npm run lint --prefix frontend
+        types_or: [javascript, jsx, ts, tsx]
+        files: ^frontend/
+        pass_filenames: false
+
+      - id: frontend-test
+        name: frontend test
+        language: system
+        entry: npm run test --prefix frontend
+        types_or: [javascript, jsx, ts, tsx]
+        files: ^frontend/
+        pass_filenames: false
