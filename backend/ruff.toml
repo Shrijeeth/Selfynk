@@ -36,7 +36,7 @@ select = [
     "B",  # flake8-bugbear
     "UP", # pyupgrade
 ]
-ignore = []
+ignore = ["B008"]
 
 [lint.per-file-ignores]
 # Ignore module level import not at top of file in env.py
