@@ -2,39 +2,34 @@ services:
   backend:
     build:
       context: ./backend
-      target: dev
+      target: prod
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
       - selfynk_data:/app/data
     env_file: .env
     environment:
       - DATABASE_URL=sqlite:////app/data/selfynk.db
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
-      target: dev
+      target: prod
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     env_file: .env
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       backend:
         condition: service_healthy
-    command: npm run dev
+    restart: unless-stopped
 
 volumes:
   selfynk_data:

@@ -1,7 +1,16 @@
-.PHONY: dev migrate test lint
+.PHONY: dev prod prod-build migrate test lint
 
 dev:
 	docker compose up
+
+dev-build:
+	docker compose up --build
+
+prod:
+	docker compose -f docker-compose.prod.yml up
+
+prod-build:
+	docker compose -f docker-compose.prod.yml up --build
 
 dev-backend:
 	cd backend && uvicorn app.main:app --reload --port 8000

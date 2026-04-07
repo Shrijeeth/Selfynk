@@ -12,7 +12,11 @@ class Settings(BaseSettings):
     Application settings loaded from environment variables.
     """
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        env_parse_none_str="",
+    )
 
     # Database
     database_url: str = "sqlite:///./selfynk.db"
@@ -29,11 +33,15 @@ class Settings(BaseSettings):
     # Server
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: str = "http://localhost:3000"
 
     # Features
     auto_analyze: bool = True
     brand_dna_recompute_threshold: int = 5
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [s.strip() for s in self.cors_origins.split(",") if s.strip()]
 
 
 settings = Settings()
