@@ -1,19 +1,38 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlmodel import Session
 
+from app.config import settings
 from app.database import get_session
 from app.models.input_entry import InputEntry, InputMode
 from app.schemas.input import InputEntryCreate, InputEntryRead, InputEntryUpdate
 from app.services import input_service
+from app.services.analysis_service import run_analysis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/input", tags=["input"])
 
 
+async def _background_analyze(entry_id: int) -> None:
+    try:
+        await run_analysis(entry_id)
+        logger.info("Auto-analysis completed for entry %s", entry_id)
+    except Exception:
+        logger.exception("Auto-analysis failed for entry %s", entry_id)
+
+
 @router.post("", response_model=InputEntryRead)
 async def create_input_entry(
-    entry_in: InputEntryCreate, session: Session = Depends(get_session)
+    entry_in: InputEntryCreate,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
 ) -> InputEntry:
-    return input_service.create_entry(session=session, entry_in=entry_in)
+    entry = input_service.create_entry(session=session, entry_in=entry_in)
+    if settings.auto_analyze and entry.id is not None:
+        background_tasks.add_task(_background_analyze, entry.id)
+    return entry
 
 
 @router.get("", response_model=list[InputEntryRead])
