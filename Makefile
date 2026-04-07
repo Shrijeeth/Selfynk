@@ -1,13 +1,13 @@
 .PHONY: dev prod prod-build migrate test lint typecheck
 
 dev:
-	docker compose up
+	docker compose up -d
 
 dev-build:
 	docker compose up --build
 
 prod:
-	docker compose -f docker-compose.prod.yml up
+	docker compose -f docker-compose.prod.yml up -d
 
 prod-build:
 	docker compose -f docker-compose.prod.yml up --build
