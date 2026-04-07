@@ -6,6 +6,7 @@ import { QueryProvider } from "@/components/providers/query-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { TopBar } from "@/components/layout/TopBar"
+import { OnboardingGuard } from "@/components/providers/onboarding-guard"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,7 +46,9 @@ export default function RootLayout({
               <Sidebar />
               <div className="flex min-h-screen w-full flex-1 flex-col md:pl-64">
                 <TopBar />
-                <main className="flex-1 overflow-y-auto">{children}</main>
+                <main className="flex-1 overflow-y-auto">
+                  <OnboardingGuard>{children}</OnboardingGuard>
+                </main>
               </div>
             </div>
             <Toaster />
