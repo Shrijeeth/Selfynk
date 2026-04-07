@@ -1,0 +1,204 @@
+"use client"
+
+import { useState } from "react"
+import { Loader2 } from "lucide-react"
+import api from "@/lib/api"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import {
+  Progress,
+  ProgressLabel,
+  ProgressValue,
+} from "@/components/ui/progress"
+
+const QUESTIONS = [
+  "When your professional circle thinks of you in 10 years, what 3 words do you want them to use?",
+  "What problem in the world do you most want to be known for caring about?",
+  "What kind of work makes you lose track of time?",
+  "Who has been most impacted by your work or presence, and how?",
+  'What do you want to be the "go-to" person for?',
+  "What do you believe about your field that most people don't yet?",
+  "What values would you never compromise on, even if it cost you opportunities?",
+  "What does a great professional legacy look like to you in one sentence?",
+  "What are the 2-3 biggest things holding you back from that legacy right now?",
+  "If you took one bold action this quarter toward that vision, what would it be?",
+]
+
+interface GeneratedStatement {
+  legacy_words: string[]
+  desired_description: string
+  reverse_engineered_actions: string[]
+}
+
+interface LegacyExerciseProps {
+  onComplete: () => void
+}
+
+export function LegacyExercise({ onComplete }: LegacyExerciseProps) {
+  const [step, setStep] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [generating, setGenerating] = useState(false)
+  const [statement, setStatement] = useState<GeneratedStatement | null>(null)
+  const [editedDescription, setEditedDescription] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const isQuestionPhase = step < QUESTIONS.length
+  const isGenerating = step === QUESTIONS.length && !statement
+  const isReview = !!statement
+
+  const currentAnswer = answers[`q${step + 1}`] || ""
+  const progress = isReview
+    ? 100
+    : Math.round(
+        ((step + (isGenerating ? 1 : 0)) / (QUESTIONS.length + 1)) * 100
+      )
+
+  async function handleNext() {
+    if (step < QUESTIONS.length - 1) {
+      setStep(step + 1)
+    } else {
+      // Last question answered — generate statement
+      setStep(QUESTIONS.length)
+      setGenerating(true)
+      setError(null)
+      try {
+        const res = await api.post<GeneratedStatement>(
+          "/api/v1/onboarding/legacy-exercise",
+          { answers }
+        )
+        setStatement(res.data)
+        setEditedDescription(res.data.desired_description)
+      } catch {
+        setError("Failed to generate your brand statement. Please try again.")
+        setStep(QUESTIONS.length - 1)
+      } finally {
+        setGenerating(false)
+      }
+    }
+  }
+
+  async function handleConfirm() {
+    if (!statement) return
+    setSaving(true)
+    // If user edited the description, re-save with updated text
+    if (editedDescription !== statement.desired_description) {
+      try {
+        await api.post("/api/v1/onboarding/legacy-exercise", {
+          answers,
+        })
+      } catch {
+        // Best effort — the statement was already saved during generation
+      }
+    }
+    setSaving(false)
+    onComplete()
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-xl space-y-8">
+      {/* Progress */}
+      <Progress value={progress}>
+        <ProgressLabel>
+          {isReview
+            ? "Review your statement"
+            : `Question ${Math.min(step + 1, QUESTIONS.length)} of ${QUESTIONS.length}`}
+        </ProgressLabel>
+        <ProgressValue />
+      </Progress>
+
+      {/* Question Phase */}
+      {isQuestionPhase && (
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <Label className="text-base font-medium">
+              Q{step + 1}. {QUESTIONS[step]}
+            </Label>
+            <Textarea
+              rows={4}
+              placeholder="Your answer..."
+              value={currentAnswer}
+              onChange={(e) =>
+                setAnswers({ ...answers, [`q${step + 1}`]: e.target.value })
+              }
+            />
+          </div>
+
+          {error && <p className="text-destructive text-sm">{error}</p>}
+
+          <Button
+            onClick={handleNext}
+            disabled={!currentAnswer.trim()}
+            className="w-full"
+          >
+            {step === QUESTIONS.length - 1 ? "Generate Statement" : "Next"}
+          </Button>
+        </div>
+      )}
+
+      {/* Generating Phase */}
+      {isGenerating && generating && (
+        <div className="flex flex-col items-center gap-4 py-12">
+          <Loader2 className="text-primary size-8 animate-spin" />
+          <p className="text-muted-foreground text-sm">
+            Synthesizing your brand vision...
+          </p>
+        </div>
+      )}
+
+      {/* Review Phase */}
+      {isReview && statement && (
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <h3 className="text-lg font-semibold">Your Legacy Words</h3>
+            <div className="flex gap-2">
+              {statement.legacy_words.map((word) => (
+                <span
+                  key={word}
+                  className="bg-primary/10 text-primary rounded-full px-3 py-1.5 text-sm font-medium"
+                >
+                  {word}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-base font-medium">
+              Your Desired Brand Statement
+            </Label>
+            <Textarea
+              rows={5}
+              value={editedDescription}
+              onChange={(e) => setEditedDescription(e.target.value)}
+            />
+            <p className="text-muted-foreground text-xs">
+              Feel free to edit this to better match your voice.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-lg font-semibold">Quarterly Actions</h3>
+            <ul className="space-y-2">
+              {statement.reverse_engineered_actions.map((action) => (
+                <li
+                  key={action}
+                  className="text-muted-foreground flex gap-2 text-sm"
+                >
+                  <span className="text-primary">&#x2022;</span>
+                  {action}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <Button onClick={handleConfirm} disabled={saving} className="w-full">
+            {saving && <Loader2 className="animate-spin" />}
+            {saving ? "Saving..." : "Confirm & Continue"}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
