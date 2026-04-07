@@ -49,6 +49,11 @@ vi.mock("@/lib/hooks/use-input-entries", () => ({
   })),
 }))
 
+vi.mock("@/lib/hooks/use-analysis", () => ({
+  useAnalysis: vi.fn(() => ({ data: null })),
+  useInvalidateAnalysis: vi.fn(() => vi.fn()),
+}))
+
 vi.mock("@/components/capture/JournalEditor", () => ({
   JournalEditor: ({
     onChange,
@@ -61,6 +66,38 @@ vi.mock("@/components/capture/JournalEditor", () => ({
       onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) =>
         onChange(e.target.value),
     }),
+}))
+
+vi.mock("@/components/analysis/AnalysisPanel", () => ({
+  AnalysisPanel: ({
+    open,
+    streamUrl,
+    analysis,
+  }: {
+    open: boolean
+    streamUrl?: string | null
+    analysis?: unknown
+    onOpenChange: (v: boolean) => void
+    onStreamDone?: () => void
+  }) =>
+    open
+      ? createElement("div", { "data-testid": "analysis-panel" }, [
+          streamUrl
+            ? createElement(
+                "span",
+                { key: "s", "data-testid": "stream-url" },
+                streamUrl
+              )
+            : null,
+          analysis
+            ? createElement(
+                "span",
+                { key: "a", "data-testid": "analysis-data" },
+                "loaded"
+              )
+            : null,
+        ])
+      : null,
 }))
 
 vi.mock("sonner", () => ({
@@ -99,11 +136,9 @@ describe("CapturePage", () => {
         modeButtons.find((btn) => btn.textContent?.includes(label))
       ).toBeDefined()
     }
-    // Journal is pressed by default
     expect(screen.getByRole("button", { pressed: true })).toHaveTextContent(
       "Journal"
     )
-    // Network mode button exists (also "networking" tag exists, so use getAllBy)
     expect(
       screen.getAllByRole("button", { name: /network/i }).length
     ).toBeGreaterThanOrEqual(1)
@@ -155,10 +190,8 @@ describe("CapturePage", () => {
 
     const meetingBtn = screen.getByRole("button", { name: "meeting" })
     await user.click(meetingBtn)
-    // After click it should have the selected class
     expect(meetingBtn.className).toContain("border-primary")
 
-    // Click again to deselect
     await user.click(meetingBtn)
     expect(meetingBtn.className).not.toContain("bg-primary/10")
   })
@@ -171,7 +204,6 @@ describe("CapturePage", () => {
     await user.click(energizedBtn)
     expect(energizedBtn.className).toContain("border-primary")
 
-    // Click again to deselect
     await user.click(energizedBtn)
     expect(energizedBtn.className).not.toContain("bg-primary/10")
   })
@@ -195,27 +227,21 @@ describe("CapturePage", () => {
   it("displays entry cards with mode badge and preview", () => {
     render(<CapturePage />, { wrapper: createWrapper() })
 
-    // Journal entry - HTML stripped preview
     expect(screen.getByText("My journal entry")).toBeInTheDocument()
-    // "Journal" appears in both mode selector and entry badge
     expect(screen.getAllByText("Journal").length).toBeGreaterThanOrEqual(2)
 
-    // Pulse entry - first string value from JSON
     expect(screen.getByText("Led standup")).toBeInTheDocument()
-    // "Pulse" appears in both mode selector and entry badge
     expect(screen.getAllByText("Pulse").length).toBeGreaterThanOrEqual(2)
   })
 
   it("displays context tags on entry cards", () => {
     render(<CapturePage />, { wrapper: createWrapper() })
 
-    // The journal entry has "meeting" and "1:1" tags
-    // "meeting" appears both as a context tag button and in entry card
     const meetingBadges = screen.getAllByText("meeting")
-    expect(meetingBadges.length).toBeGreaterThanOrEqual(2) // tag button + entry badge
+    expect(meetingBadges.length).toBeGreaterThanOrEqual(2)
 
     const oneOnOneBadges = screen.getAllByText("1:1")
-    expect(oneOnOneBadges.length).toBeGreaterThanOrEqual(2) // tag button + entry badge
+    expect(oneOnOneBadges.length).toBeGreaterThanOrEqual(2)
   })
 
   it("shows empty state when no entries", async () => {
@@ -228,5 +254,49 @@ describe("CapturePage", () => {
     render(<CapturePage />, { wrapper: createWrapper() })
 
     expect(screen.getByText(/no entries yet/i)).toBeInTheDocument()
+  })
+
+  // ── Analysis Panel integration ─────────────────────────────────
+
+  it("does not show analysis panel initially", () => {
+    render(<CapturePage />, { wrapper: createWrapper() })
+
+    expect(screen.queryByTestId("analysis-panel")).toBeNull()
+  })
+
+  it("opens analysis panel with stream URL after save", async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation(
+      (_payload: unknown, opts: { onSuccess: (data: InputEntry) => void }) => {
+        opts.onSuccess({ ...ENTRY_FIXTURE, id: 42 })
+      }
+    )
+
+    render(<CapturePage />, { wrapper: createWrapper() })
+
+    // Type in the journal editor to have content
+    await user.type(screen.getByTestId("journal-editor"), "Hello world")
+    await user.click(screen.getByRole("button", { name: /save entry/i }))
+
+    // Panel should now be open with stream URL
+    expect(screen.getByTestId("analysis-panel")).toBeInTheDocument()
+    const streamUrl = screen.getByTestId("stream-url")
+    expect(streamUrl.textContent).toContain("/api/v1/analysis/stream/42")
+  })
+
+  it("does not open panel if save fails", async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation(
+      (_payload: unknown, opts: { onError: () => void }) => {
+        opts.onError()
+      }
+    )
+
+    render(<CapturePage />, { wrapper: createWrapper() })
+
+    await user.type(screen.getByTestId("journal-editor"), "Hello")
+    await user.click(screen.getByRole("button", { name: /save entry/i }))
+
+    expect(screen.queryByTestId("analysis-panel")).toBeNull()
   })
 })

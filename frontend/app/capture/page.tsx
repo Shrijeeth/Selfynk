@@ -1,15 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
+import api from "@/lib/api"
 import { InputMode, Emotion, type InputEntry } from "@/types"
 import { useInputEntries, useCreateEntry } from "@/lib/hooks/use-input-entries"
+import { useAnalysis, useInvalidateAnalysis } from "@/lib/hooks/use-analysis"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
+import { AnalysisPanel } from "@/components/analysis/AnalysisPanel"
 import { ModeSelector } from "@/components/capture/ModeSelector"
 import { JournalEditor } from "@/components/capture/JournalEditor"
 import {
@@ -117,6 +120,25 @@ export default function CapturePage() {
   const { data: entries = [], isLoading: entriesLoading } = useInputEntries()
   const createEntry = useCreateEntry()
 
+  // Analysis panel state
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [streamEntryId, setStreamEntryId] = useState<number | null>(null)
+  const [analysisEntryId, setAnalysisEntryId] = useState<number | null>(null)
+  const { data: analysis } = useAnalysis(analysisEntryId)
+  const invalidateAnalysis = useInvalidateAnalysis()
+
+  const streamUrl = streamEntryId
+    ? `${api.defaults.baseURL}/api/v1/analysis/stream/${streamEntryId}`
+    : null
+
+  const handleStreamDone = useCallback(() => {
+    if (streamEntryId) {
+      setAnalysisEntryId(streamEntryId)
+      invalidateAnalysis(streamEntryId)
+      setStreamEntryId(null)
+    }
+  }, [streamEntryId, invalidateAnalysis])
+
   // Form state per mode
   const [journalContent, setJournalContent] = useState("")
   const [pulseData, setPulseData] = useState<DailyPulseData>(INITIAL_PULSE)
@@ -183,9 +205,14 @@ export default function CapturePage() {
         alignment_score: getAlignmentScore(),
       },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
           toast.success("Entry saved successfully!")
           resetForm()
+          if (data.id) {
+            setAnalysisEntryId(null)
+            setStreamEntryId(data.id)
+            setPanelOpen(true)
+          }
         },
         onError: () => {
           toast.error("Failed to save entry. Please try again.")
@@ -346,6 +373,15 @@ export default function CapturePage() {
           </div>
         )}
       </div>
+
+      {/* Analysis Panel */}
+      <AnalysisPanel
+        open={panelOpen}
+        onOpenChange={setPanelOpen}
+        analysis={analysis ?? null}
+        streamUrl={streamUrl}
+        onStreamDone={handleStreamDone}
+      />
     </div>
   )
 }
