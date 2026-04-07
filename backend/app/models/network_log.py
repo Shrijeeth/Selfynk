@@ -18,7 +18,7 @@ class NetworkContactType(StrEnum):
     SUPPORTER = "supporter"
 
 
-class NetworkLog(SQLModel, table=True):
+class NetworkLog(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents a log of a networking interaction.
     """

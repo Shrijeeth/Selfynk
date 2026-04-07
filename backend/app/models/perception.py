@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlmodel import Field, SQLModel
 
 
-class PerceptionReport(SQLModel, table=True):
+class PerceptionReport(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents an analysis of the gap between how a user sees themselves and how they are perceived.
     """

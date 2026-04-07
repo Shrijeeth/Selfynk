@@ -8,7 +8,7 @@ from sqlalchemy import JSON
 from sqlmodel import Column, Field, SQLModel
 
 
-class BrandDNA(SQLModel, table=True):
+class BrandDNA(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents the derived Brand DNA attributes for a user, such as positioning,
     niche, voice, strengths, and content pillars.

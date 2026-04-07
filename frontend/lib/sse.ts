@@ -8,13 +8,11 @@ export function useSSEStream(url: string | null) {
   useEffect(() => {
     if (!url) return
 
-    // Reset state when URL changes
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* eslint-disable react-hooks/set-state-in-effect -- intentional reset before subscribing to new stream */
     setText("")
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsDone(false)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError(null)
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     const es = new EventSource(url)
     es.addEventListener("chunk", (e) => setText((prev) => prev + e.data))

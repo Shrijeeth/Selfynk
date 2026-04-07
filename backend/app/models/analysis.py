@@ -8,7 +8,7 @@ from sqlalchemy import JSON
 from sqlmodel import Column, Field, SQLModel
 
 
-class Analysis(SQLModel, table=True):
+class Analysis(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents the synthesized analysis from an input entry, extracting
     themes, skills, signals, and tone.

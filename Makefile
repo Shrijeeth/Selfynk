@@ -19,7 +19,7 @@ test:
 	cd backend && pytest -v
 
 lint:
-	cd backend && ruff check . && mypy app/
+	cd backend && uv run ruff check . && uv run mypy app/
 	cd frontend && npm run lint
 
 install-backend:

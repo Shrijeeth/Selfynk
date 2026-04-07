@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlmodel import Field, SQLModel
 
 
-class VoiceSample(SQLModel, table=True):
+class VoiceSample(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents a sample of a user's writing to learn their unique voice.
     """

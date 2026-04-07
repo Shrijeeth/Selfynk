@@ -31,7 +31,7 @@ class Emotion(StrEnum):
     DRAINED = "drained"
 
 
-class InputEntry(SQLModel, table=True):
+class InputEntry(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents a distinct user entry or activity log.
     """

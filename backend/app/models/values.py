@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlmodel import Field, SQLModel
 
 
-class ValueItem(SQLModel, table=True):
+class ValueItem(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents a core value the user has declared and its context.
     """

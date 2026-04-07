@@ -21,7 +21,7 @@ class ContentPlatform(StrEnum):
     ELEVATOR_PITCH_60S = "elevator_pitch_60s"
 
 
-class GeneratedContent(SQLModel, table=True):
+class GeneratedContent(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents content generated from a user's inputs tailored for a specific platform.
     """

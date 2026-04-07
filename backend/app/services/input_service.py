@@ -9,7 +9,7 @@ def create_entry(session: Session, entry_in: InputEntryCreate) -> InputEntry:
     session.add(db_entry)
     session.commit()
     session.refresh(db_entry)
-    return db_entry
+    return db_entry  # type: ignore[return-value]
 
 
 def list_entries(
@@ -23,7 +23,7 @@ def list_entries(
 
 
 def get_entry(session: Session, entry_id: int) -> InputEntry | None:
-    return session.get(InputEntry, entry_id)
+    return session.get(InputEntry, entry_id)  # type: ignore[return-value]
 
 
 def update_entry(session: Session, entry_db: InputEntry, entry_in: InputEntryUpdate) -> InputEntry:

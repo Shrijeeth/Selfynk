@@ -8,7 +8,7 @@ from sqlalchemy import JSON
 from sqlmodel import Column, Field, SQLModel
 
 
-class DesiredBrandStatement(SQLModel, table=True):
+class DesiredBrandStatement(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents the target brand state, legacy words, and actionable steps to reach them.
     """

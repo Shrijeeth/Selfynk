@@ -8,7 +8,7 @@ from sqlalchemy import JSON
 from sqlmodel import Column, Field, SQLModel
 
 
-class CredibilityReport(SQLModel, table=True):
+class CredibilityReport(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Represents a weekly credibility report measuring the alignment of actions with desired brand.
     """
