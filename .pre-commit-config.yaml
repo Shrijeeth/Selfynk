@@ -1,15 +1,15 @@
 repos:
   - repo: local
     hooks:
-      - id: ruff-format
-        name: ruff format
+      - id: backend-format
+        name: backend format
         language: system
         entry: uv run --project backend ruff format
         types: [python]
         files: ^backend/
       
-      - id: ruff-check
-        name: ruff check
+      - id: backend-lint
+        name: backend lint
         language: system
         entry: uv run --project backend ruff check --fix
         types: [python]
