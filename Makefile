@@ -1,4 +1,4 @@
-.PHONY: dev prod prod-build migrate test lint
+.PHONY: dev prod prod-build migrate test lint typecheck
 
 dev:
 	docker compose up
@@ -25,11 +25,16 @@ migration:
 	cd backend && alembic revision --autogenerate -m "$(name)"
 
 test:
-	cd backend && pytest -v
+	cd backend && uv run pytest -v
+	cd frontend && npm test
 
 lint:
 	cd backend && uv run ruff check . && uv run mypy app/
 	cd frontend && npm run lint
+
+typecheck:
+	cd backend && uv run mypy app/
+	cd frontend && npx tsc --noEmit
 
 install-backend:
 	cd backend && uv sync

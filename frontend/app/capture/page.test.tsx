@@ -223,7 +223,7 @@ describe("CapturePage", () => {
     vi.mocked(useInputEntries).mockReturnValueOnce({
       data: [],
       isLoading: false,
-    } as ReturnType<typeof useInputEntries>)
+    } as unknown as ReturnType<typeof useInputEntries>)
 
     render(<CapturePage />, { wrapper: createWrapper() })
 

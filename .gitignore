@@ -2,3 +2,7 @@
 .mypy_cache
 playground/
 *.env
+
+# Databases
+*.db
+*.sqlite3

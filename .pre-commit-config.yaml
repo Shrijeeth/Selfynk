@@ -15,14 +15,30 @@ repos:
         types: [python]
         files: ^backend/
 
-      - id: mypy
-        name: mypy
+      - id: backend-typecheck
+        name: backend typecheck
         language: system
         entry: uv run --project backend mypy
         types: [python]
         files: ^backend/
         pass_filenames: false
         args: ["backend/app/"]
+
+      - id: backend-test
+        name: backend test
+        language: system
+        entry: uv run --project backend pytest -q
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+
+      - id: frontend-typecheck
+        name: frontend typecheck
+        language: system
+        entry: bash -c "cd frontend && npx tsc --noEmit"
+        types_or: [ts, tsx]
+        files: ^frontend/
+        pass_filenames: false
 
       - id: frontend-format
         name: frontend format
