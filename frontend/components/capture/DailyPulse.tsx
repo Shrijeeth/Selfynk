@@ -1,8 +1,13 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
+
+const Slider = dynamic(
+  () => import("@/components/ui/slider").then((m) => m.Slider),
+  { ssr: false }
+)
 
 export interface DailyPulseData {
   value_shown: string
