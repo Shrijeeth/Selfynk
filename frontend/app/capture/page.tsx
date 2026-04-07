@@ -3,10 +3,12 @@
 import { useState } from "react"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
-import api from "@/lib/api"
-import { InputMode, Emotion } from "@/types"
+import { InputMode, Emotion, type InputEntry } from "@/types"
+import { useInputEntries, useCreateEntry } from "@/lib/hooks/use-input-entries"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
 import { ModeSelector } from "@/components/capture/ModeSelector"
 import { JournalEditor } from "@/components/capture/JournalEditor"
@@ -73,11 +75,47 @@ const INITIAL_REVIEW: WeeklyReviewData = {
   next_week_focus: "",
 }
 
+const MODE_LABELS: Record<InputMode, string> = {
+  journal: "Journal",
+  pulse: "Pulse",
+  debrief: "Debrief",
+  network: "Network",
+  review: "Review",
+}
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+function getPreview(entry: InputEntry): string {
+  if (entry.mode === "journal") {
+    return entry.content.replace(/<[^>]*>/g, "").slice(0, 120)
+  }
+  try {
+    const parsed = JSON.parse(entry.content)
+    const firstValue = Object.values(parsed).find(
+      (v) => typeof v === "string" && v.length > 0
+    )
+    return typeof firstValue === "string" ? firstValue.slice(0, 120) : ""
+  } catch {
+    return entry.content.slice(0, 120)
+  }
+}
+
 export default function CapturePage() {
   const [mode, setMode] = useState<InputMode>("journal")
   const [contextTags, setContextTags] = useState<string[]>([])
   const [emotion, setEmotion] = useState<Emotion | null>(null)
-  const [saving, setSaving] = useState(false)
+
+  const { data: entries = [], isLoading: entriesLoading } = useInputEntries()
+  const createEntry = useCreateEntry()
 
   // Form state per mode
   const [journalContent, setJournalContent] = useState("")
@@ -136,22 +174,24 @@ export default function CapturePage() {
       return
     }
 
-    setSaving(true)
-    try {
-      await api.post("/api/v1/input", {
+    createEntry.mutate(
+      {
         mode,
         content,
         context_tags: contextTags,
         emotion: emotion ?? undefined,
         alignment_score: getAlignmentScore(),
-      })
-      toast.success("Entry saved successfully!")
-      resetForm()
-    } catch {
-      toast.error("Failed to save entry. Please try again.")
-    } finally {
-      setSaving(false)
-    }
+      },
+      {
+        onSuccess: () => {
+          toast.success("Entry saved successfully!")
+          resetForm()
+        },
+        onError: () => {
+          toast.error("Failed to save entry. Please try again.")
+        },
+      }
+    )
   }
 
   return (
@@ -245,12 +285,67 @@ export default function CapturePage() {
       <Button
         size="lg"
         onClick={handleSave}
-        disabled={saving}
+        disabled={createEntry.isPending}
         className="w-full"
       >
-        {saving && <Loader2 className="animate-spin" />}
-        {saving ? "Saving..." : "Save Entry"}
+        {createEntry.isPending && <Loader2 className="animate-spin" />}
+        {createEntry.isPending ? "Saving..." : "Save Entry"}
       </Button>
+
+      {/* Past Entries */}
+      <Separator />
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold tracking-tight">Past Entries</h2>
+
+        {entriesLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="text-muted-foreground size-5 animate-spin" />
+          </div>
+        )}
+
+        {!entriesLoading && entries.length === 0 && (
+          <div className="rounded-xl border border-dashed py-12 text-center">
+            <p className="text-muted-foreground text-sm">
+              No entries yet. Start capturing above!
+            </p>
+          </div>
+        )}
+
+        {!entriesLoading && entries.length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {entries.map((entry) => {
+              const preview = getPreview(entry)
+              return (
+                <div
+                  key={entry.id}
+                  className="bg-card space-y-2 rounded-xl border p-4"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge variant="secondary">{MODE_LABELS[entry.mode]}</Badge>
+                    <span className="text-muted-foreground text-xs">
+                      {formatDate(entry.created_at)}
+                    </span>
+                  </div>
+                  {preview && (
+                    <p className="text-muted-foreground line-clamp-2 text-sm">
+                      {preview}
+                    </p>
+                  )}
+                  {entry.context_tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {entry.context_tags.map((tag) => (
+                        <Badge key={tag} variant="outline" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
