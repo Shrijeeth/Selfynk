@@ -4,13 +4,13 @@ dev:
 	docker compose up -d
 
 dev-build:
-	docker compose up --build
+	docker compose up --build -d
 
 prod:
 	docker compose -f docker-compose.prod.yml up -d
 
 prod-build:
-	docker compose -f docker-compose.prod.yml up --build
+	docker compose -f docker-compose.prod.yml up --build -d
 
 dev-backend:
 	cd backend && uvicorn app.main:app --reload --port 8000
