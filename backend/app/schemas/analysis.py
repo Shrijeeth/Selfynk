@@ -4,6 +4,8 @@ from pydantic import BaseModel
 
 
 class AnalysisRead(BaseModel):
+    model_config = {"from_attributes": True}
+
     id: int
     entry_id: int
     themes: list[str]

@@ -23,34 +23,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/analysis", tags=["analysis"])
 
 
-@router.post("/{entry_id}", response_model=AnalysisRead)
-async def trigger_analysis(
-    entry_id: int,
-    session: Session = Depends(get_session),
-) -> Analysis:
-    entry = session.get(InputEntry, entry_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Entry not found")
-
-    try:
-        return await run_analysis(entry_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+# Static paths must come before parameterized /{entry_id} routes.
 
 
-@router.get("/{entry_id}", response_model=AnalysisRead)
-async def get_analysis(
-    entry_id: int,
-    session: Session = Depends(get_session),
-) -> Analysis:
-    statement = select(Analysis).where(Analysis.entry_id == entry_id)
-    analysis = session.exec(statement).first()
-    if not analysis:
-        raise HTTPException(
-            status_code=404,
-            detail="No analysis found for this entry",
-        )
-    return analysis
+@router.post("/batch", response_model=BatchAnalysisResponse)
+async def batch_analysis(
+    body: BatchAnalysisRequest,
+) -> BatchAnalysisResponse:
+    results: list[Analysis] = []
+    errors: list[str] = []
+
+    for entry_id in body.entry_ids:
+        try:
+            analysis = await run_analysis(entry_id)
+            results.append(analysis)
+        except Exception as e:
+            logger.exception("Batch analysis error for entry %s", entry_id)
+            errors.append(f"Entry {entry_id}: {e!s}")
+
+    return BatchAnalysisResponse(
+        results=[AnalysisRead.model_validate(r) for r in results],
+        errors=errors,
+    )
 
 
 @router.get("/stream/{entry_id}")
@@ -81,22 +75,31 @@ async def stream_analysis_sse(
     )
 
 
-@router.post("/batch", response_model=BatchAnalysisResponse)
-async def batch_analysis(
-    body: BatchAnalysisRequest,
-) -> BatchAnalysisResponse:
-    results: list[Analysis] = []
-    errors: list[str] = []
+@router.post("/{entry_id}", response_model=AnalysisRead)
+async def trigger_analysis(
+    entry_id: int,
+    session: Session = Depends(get_session),
+) -> Analysis:
+    entry = session.get(InputEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
 
-    for entry_id in body.entry_ids:
-        try:
-            analysis = await run_analysis(entry_id)
-            results.append(analysis)
-        except Exception as e:
-            logger.exception("Batch analysis error for entry %s", entry_id)
-            errors.append(f"Entry {entry_id}: {e!s}")
+    try:
+        return await run_analysis(entry_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
-    return BatchAnalysisResponse(
-        results=[AnalysisRead.model_validate(r) for r in results],
-        errors=errors,
-    )
+
+@router.get("/{entry_id}", response_model=AnalysisRead)
+async def get_analysis(
+    entry_id: int,
+    session: Session = Depends(get_session),
+) -> Analysis:
+    statement = select(Analysis).where(Analysis.entry_id == entry_id)
+    analysis = session.exec(statement).first()
+    if not analysis:
+        raise HTTPException(
+            status_code=404,
+            detail="No analysis found for this entry",
+        )
+    return analysis
