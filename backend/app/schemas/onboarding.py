@@ -58,3 +58,9 @@ class OnboardingStatus(BaseModel):
     legacy_done: bool
     values_done: bool
     voice_done: bool
+
+
+class MemoryImportResponse(BaseModel):
+    answers: dict[str, str]
+    confidence: dict[str, str]
+    source_type: str

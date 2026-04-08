@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, PenLine, Sparkles } from "lucide-react"
 import api from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -11,6 +12,7 @@ import {
   ProgressLabel,
   ProgressValue,
 } from "@/components/ui/progress"
+import { MemoryImport } from "@/components/onboarding/MemoryImport"
 
 const QUESTIONS = [
   "When your professional circle thinks of you in 10 years, what 3 words do you want them to use?",
@@ -36,30 +38,52 @@ interface LegacyExerciseProps {
 }
 
 export function LegacyExercise({ onComplete }: LegacyExerciseProps) {
-  const [step, setStep] = useState(0)
+  // step: -1 = entry chooser, -2 = import UI, 0-9 = questions, 10 = generating
+  const [step, setStep] = useState(-1)
   const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [confidence, setConfidence] = useState<Record<string, string>>({})
   const [generating, setGenerating] = useState(false)
   const [statement, setStatement] = useState<GeneratedStatement | null>(null)
   const [editedDescription, setEditedDescription] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isQuestionPhase = step < QUESTIONS.length
+  const isChooser = step === -1
+  const isImport = step === -2
+  const isQuestionPhase = step >= 0 && step < QUESTIONS.length
   const isGenerating = step === QUESTIONS.length && !statement
   const isReview = !!statement
 
-  const currentAnswer = answers[`q${step + 1}`] || ""
+  const currentAnswer = step >= 0 ? answers[`q${step + 1}`] || "" : ""
   const progress = isReview
     ? 100
-    : Math.round(
-        ((step + (isGenerating ? 1 : 0)) / (QUESTIONS.length + 1)) * 100
-      )
+    : step < 0
+      ? 0
+      : Math.round(
+          ((step + (isGenerating ? 1 : 0)) / (QUESTIONS.length + 1)) * 100
+        )
+
+  function handleImport(
+    imported: Record<string, string>,
+    conf: Record<string, string>
+  ) {
+    setAnswers(imported)
+    setConfidence(conf)
+    const filled = Object.values(imported).filter(
+      (v) => v.trim().length > 0
+    ).length
+    setError(
+      filled < QUESTIONS.length
+        ? `Pre-filled ${filled} of ${QUESTIONS.length} answers. Please complete the rest.`
+        : null
+    )
+    setStep(0)
+  }
 
   async function handleNext() {
     if (step < QUESTIONS.length - 1) {
       setStep(step + 1)
     } else {
-      // Last question answered — generate statement
       setStep(QUESTIONS.length)
       setGenerating(true)
       setError(null)
@@ -82,45 +106,113 @@ export function LegacyExercise({ onComplete }: LegacyExerciseProps) {
   async function handleConfirm() {
     if (!statement) return
     setSaving(true)
-    // If user edited the description, re-save with updated text
     if (editedDescription !== statement.desired_description) {
       try {
         await api.post("/api/v1/onboarding/legacy-exercise", {
           answers,
         })
       } catch {
-        // Best effort — the statement was already saved during generation
+        // Best effort
       }
     }
     setSaving(false)
     onComplete()
   }
 
+  const lowConfidence = step >= 0 && confidence[`q${step + 1}`] === "low"
+
   return (
     <div className="mx-auto w-full max-w-xl space-y-8">
-      {/* Progress */}
-      <Progress value={progress}>
-        <ProgressLabel>
-          {isReview
-            ? "Review your statement"
-            : `Question ${Math.min(step + 1, QUESTIONS.length)} of ${QUESTIONS.length}`}
-        </ProgressLabel>
-        <ProgressValue />
-      </Progress>
+      {/* Entry Chooser */}
+      {isChooser && (
+        <div className="space-y-6">
+          <div className="text-center">
+            <h2 className="text-xl font-bold tracking-tight">
+              Legacy Design Exercise
+            </h2>
+            <p className="text-muted-foreground mt-1 text-sm">
+              How do you want to define your professional vision?
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setStep(0)}
+              className="bg-card hover:border-primary/50 flex flex-col items-start gap-3 rounded-xl border p-5 text-left transition-colors"
+            >
+              <PenLine className="text-primary size-6" />
+              <div>
+                <p className="font-semibold">Answer 10 questions</p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  ~8 minutes. Reflective exercise.
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStep(-2)}
+              className="bg-card hover:border-primary/50 flex flex-col items-start gap-3 rounded-xl border p-5 text-left transition-colors"
+            >
+              <Sparkles className="text-primary size-6" />
+              <div>
+                <p className="font-semibold">Import from AI conversations</p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  Use your ChatGPT or Claude history to pre-fill.
+                </p>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Memory Import */}
+      {isImport && (
+        <MemoryImport onImport={handleImport} onCancel={() => setStep(-1)} />
+      )}
+
+      {/* Progress (only during questions/review) */}
+      {step >= 0 && (
+        <Progress value={progress}>
+          <ProgressLabel>
+            {isReview
+              ? "Review your statement"
+              : `Question ${Math.min(step + 1, QUESTIONS.length)} of ${QUESTIONS.length}`}
+          </ProgressLabel>
+          <ProgressValue />
+        </Progress>
+      )}
 
       {/* Question Phase */}
       {isQuestionPhase && (
         <div className="space-y-6">
           <div className="space-y-2">
-            <Label className="text-base font-medium">
-              Q{step + 1}. {QUESTIONS[step]}
-            </Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-base font-medium">
+                Q{step + 1}. {QUESTIONS[step]}
+              </Label>
+              {lowConfidence && (
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    "bg-amber-100 text-amber-700",
+                    "dark:bg-amber-900 dark:text-amber-300"
+                  )}
+                >
+                  needs review
+                </span>
+              )}
+            </div>
             <Textarea
               rows={4}
               placeholder="Your answer..."
               value={currentAnswer}
               onChange={(e) =>
-                setAnswers({ ...answers, [`q${step + 1}`]: e.target.value })
+                setAnswers({
+                  ...answers,
+                  [`q${step + 1}`]: e.target.value,
+                })
               }
             />
           </div>

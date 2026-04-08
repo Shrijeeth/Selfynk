@@ -229,3 +229,105 @@ async def test_submit_empty_voice_samples(async_client: AsyncClient) -> None:
     )
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# ── POST /import-memory ─────────────────────────────────────────────
+
+MOCK_EXTRACTION = {
+    "q1": "bold",
+    "q2": "education",
+    "q3": "building",
+    "q4": "",
+    "q5": "systems",
+    "q6": "",
+    "q7": "honesty",
+    "q8": "legacy",
+    "q9": "",
+    "q10": "write more",
+    "confidence": {
+        "q1": "high",
+        "q2": "medium",
+        "q3": "high",
+        "q4": "low",
+        "q5": "high",
+        "q6": "low",
+        "q7": "high",
+        "q8": "high",
+        "q9": "low",
+        "q10": "medium",
+    },
+}
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.routers.onboarding.extract_legacy_answers",
+    new_callable=AsyncMock,
+)
+@patch("app.routers.onboarding.detect_format", return_value="raw")
+@patch("app.routers.onboarding.parse_export", return_value="parsed text")
+async def test_import_memory_with_file(
+    mock_parse: AsyncMock,
+    mock_detect: AsyncMock,
+    mock_extract: AsyncMock,
+    async_client: AsyncClient,
+) -> None:
+    mock_extract.return_value = MOCK_EXTRACTION
+
+    resp = await async_client.post(
+        "/api/v1/onboarding/import-memory",
+        files={"file": ("test.json", b'[{"mapping": {}}]', "application/json")},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["answers"]["q1"] == "bold"
+    assert data["confidence"]["q1"] == "high"
+    assert data["source_type"] == "raw"
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.routers.onboarding.extract_legacy_answers",
+    new_callable=AsyncMock,
+)
+async def test_import_memory_with_raw_text(
+    mock_extract: AsyncMock,
+    async_client: AsyncClient,
+) -> None:
+    mock_extract.return_value = MOCK_EXTRACTION
+
+    resp = await async_client.post(
+        "/api/v1/onboarding/import-memory",
+        data={"raw_text": "I value honesty and transparency"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["answers"]["q7"] == "honesty"
+    assert data["source_type"] == "raw"
+
+
+@pytest.mark.asyncio
+async def test_import_memory_no_input(
+    async_client: AsyncClient,
+) -> None:
+    resp = await async_client.post("/api/v1/onboarding/import-memory")
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.routers.onboarding.extract_legacy_answers",
+    new_callable=AsyncMock,
+)
+async def test_import_memory_agent_failure(
+    mock_extract: AsyncMock,
+    async_client: AsyncClient,
+) -> None:
+    mock_extract.side_effect = RuntimeError("LLM down")
+
+    resp = await async_client.post(
+        "/api/v1/onboarding/import-memory",
+        data={"raw_text": "some text"},
+    )
+    assert resp.status_code == 500
+    assert "Failed to extract" in resp.json()["detail"]

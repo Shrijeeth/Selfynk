@@ -5,14 +5,13 @@ Takes the user's 10-question legacy design exercise answers and synthesizes
 a desired brand statement plus quarterly action items.
 """
 
-import json
 import logging
-import re
 from typing import Any
 
 from agno.agent import Agent
 
 from app.agents.base import get_model
+from app.agents.utils import extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -78,29 +77,6 @@ def _build_prompt(answers: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def _extract_json(text: str) -> dict[str, Any]:
-    """Extract JSON from text that may contain markdown fences or preamble."""
-    # Try direct parse first
-    text = text.strip()
-    try:
-        return json.loads(text)  # type: ignore[no-any-return]
-    except json.JSONDecodeError:
-        pass
-
-    # Try extracting from markdown code fence
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if match:
-        return json.loads(match.group(1).strip())  # type: ignore[no-any-return]
-
-    # Try finding first { to last }
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1:
-        return json.loads(text[start : end + 1])  # type: ignore[no-any-return]
-
-    raise json.JSONDecodeError("No JSON found in response", text, 0)
-
-
 async def compute_desired_brand(
     answers: dict[str, str],
 ) -> dict[str, Any]:
@@ -111,4 +87,4 @@ async def compute_desired_brand(
     raw: str = response.content if response.content else ""
     logger.debug("LegacyVision raw response: %s", raw[:200])
 
-    return _extract_json(raw)
+    return extract_json(raw)

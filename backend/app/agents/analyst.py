@@ -4,8 +4,6 @@ AnalystAgent — extracts identity signals from any input entry.
 Returns structured analysis: themes, skills, values, tone, and perception signals.
 """
 
-import json
-import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -13,6 +11,7 @@ from agno.agent import Agent
 from agno.run.agent import RunContentEvent
 
 from app.agents.base import get_model
+from app.agents.utils import extract_json
 from app.models.input_entry import InputEntry
 
 SYSTEM_PROMPT = """\
@@ -55,28 +54,11 @@ def _build_prompt(entry: InputEntry) -> str:
     return f"Mode: {entry.mode}\nContext tags: {tags}\n---\n{entry.content}"
 
 
-def _extract_json(text: str) -> dict[str, Any]:
-    """Extract JSON from text that may contain markdown fences or preamble."""
-    text = text.strip()
-    try:
-        return json.loads(text)  # type: ignore[no-any-return]
-    except json.JSONDecodeError:
-        pass
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if match:
-        return json.loads(match.group(1).strip())  # type: ignore[no-any-return]
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1:
-        return json.loads(text[start : end + 1])  # type: ignore[no-any-return]
-    raise json.JSONDecodeError("No JSON found in response", text, 0)
-
-
 async def analyze_entry(entry: InputEntry) -> dict[str, Any]:
     agent = build_analyst_agent()
     response = await agent.arun(_build_prompt(entry))
     raw: str = response.content if response.content else ""
-    return _extract_json(raw)
+    return extract_json(raw)
 
 
 async def stream_analysis(entry: InputEntry) -> AsyncIterator[str]:

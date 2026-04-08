@@ -2,10 +2,15 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlmodel import Session, select
 
 from app.agents.legacy_vision import compute_desired_brand
+from app.agents.memory_extractor import (
+    detect_format,
+    extract_legacy_answers,
+    parse_export,
+)
 from app.database import get_session
 from app.models.desired_brand import DesiredBrandStatement
 from app.models.values import ValueItem
@@ -13,6 +18,7 @@ from app.models.voice_sample import VoiceSample
 from app.schemas.onboarding import (
     DesiredBrandStatementRead,
     LegacyExerciseRequest,
+    MemoryImportResponse,
     OnboardingStatus,
     ValueItemRead,
     ValuesRequest,
@@ -75,6 +81,56 @@ async def submit_legacy_exercise(
     session.commit()
     session.refresh(statement)
     return statement
+
+
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
+
+
+@router.post("/import-memory", response_model=MemoryImportResponse)
+async def import_memory(
+    file: UploadFile | None = File(None),
+    raw_text: str | None = Form(None),
+) -> MemoryImportResponse:
+    if not file and not raw_text:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either a file upload or raw_text.",
+        )
+
+    try:
+        if file:
+            content = await file.read()
+            if len(content) > MAX_UPLOAD_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail="File too large. Maximum size is 50MB.",
+                )
+            fmt = detect_format(content)
+            text = parse_export(content, fmt)
+            source_type = fmt
+        else:
+            text = raw_text or ""
+            source_type = "raw"
+            fmt = "raw"
+
+        result = await extract_legacy_answers(text)
+
+        answers = {k: v for k, v in result.items() if k.startswith("q") and k != "confidence"}
+        confidence = result.get("confidence", {})
+
+        return MemoryImportResponse(
+            answers=answers,
+            confidence=confidence,
+            source_type=source_type,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Memory import failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to extract answers: {e!s}",
+        ) from e
 
 
 @router.post("/values", response_model=list[ValueItemRead])

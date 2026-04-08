@@ -1,0 +1,167 @@
+import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { MemoryImport } from "./MemoryImport"
+
+vi.mock("@/lib/api", () => ({
+  default: {
+    post: vi.fn(),
+  },
+}))
+
+import api from "@/lib/api"
+
+const mockedApi = vi.mocked(api)
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe("MemoryImport", () => {
+  it("renders both tabs", () => {
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    expect(screen.getByText("Upload file")).toBeInTheDocument()
+    expect(screen.getByText("Paste text")).toBeInTheDocument()
+  })
+
+  it("renders upload zone by default", () => {
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    expect(screen.getByText(/drop your export file/i)).toBeInTheDocument()
+  })
+
+  it("switches to paste tab", async () => {
+    const user = userEvent.setup()
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.click(screen.getByText("Paste text"))
+
+    expect(
+      screen.getByPlaceholderText(/paste your ai conversation/i)
+    ).toBeInTheDocument()
+  })
+
+  it("shows export instructions when toggled", async () => {
+    const user = userEvent.setup()
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.click(screen.getByText("How to export your data"))
+
+    expect(screen.getByText("ChatGPT")).toBeInTheDocument()
+    expect(screen.getByText("Claude")).toBeInTheDocument()
+    expect(screen.getByText(/data controls/i)).toBeInTheDocument()
+  })
+
+  it("shows paste tab helper text", async () => {
+    const user = userEvent.setup()
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.click(screen.getByText("Paste text"))
+
+    expect(
+      screen.getByText(/write out everything you know about me/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/write out my memories verbatim/i)
+    ).toBeInTheDocument()
+  })
+
+  it("Extract answers button disabled with no input", () => {
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    expect(
+      screen.getByRole("button", { name: /extract answers/i })
+    ).toBeDisabled()
+  })
+
+  it("enables submit after pasting text", async () => {
+    const user = userEvent.setup()
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.click(screen.getByText("Paste text"))
+    await user.type(
+      screen.getByPlaceholderText(/paste your ai/i),
+      "my values are honesty"
+    )
+
+    expect(
+      screen.getByRole("button", { name: /extract answers/i })
+    ).toBeEnabled()
+  })
+
+  it("calls onImport on successful extraction via paste", async () => {
+    const user = userEvent.setup()
+    const onImport = vi.fn()
+
+    mockedApi.post.mockResolvedValueOnce({
+      data: {
+        answers: { q1: "bold", q2: "education" },
+        confidence: { q1: "high", q2: "medium" },
+        source_type: "raw",
+      },
+    })
+
+    render(<MemoryImport onImport={onImport} onCancel={vi.fn()} />)
+
+    await user.click(screen.getByText("Paste text"))
+    await user.type(
+      screen.getByPlaceholderText(/paste your ai/i),
+      "my conversations"
+    )
+    await user.click(screen.getByRole("button", { name: /extract answers/i }))
+
+    expect(onImport).toHaveBeenCalledWith(
+      { q1: "bold", q2: "education" },
+      { q1: "high", q2: "medium" }
+    )
+  })
+
+  it("shows error when extraction returns no answers", async () => {
+    const user = userEvent.setup()
+
+    mockedApi.post.mockResolvedValueOnce({
+      data: {
+        answers: { q1: "", q2: "" },
+        confidence: {},
+        source_type: "raw",
+      },
+    })
+
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.click(screen.getByText("Paste text"))
+    await user.type(
+      screen.getByPlaceholderText(/paste your ai/i),
+      "random text"
+    )
+    await user.click(screen.getByRole("button", { name: /extract answers/i }))
+
+    expect(
+      screen.getByText(/could not extract any answers/i)
+    ).toBeInTheDocument()
+  })
+
+  it("shows error on API failure", async () => {
+    const user = userEvent.setup()
+    mockedApi.post.mockRejectedValueOnce(new Error("fail"))
+
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.click(screen.getByText("Paste text"))
+    await user.type(screen.getByPlaceholderText(/paste your ai/i), "text")
+    await user.click(screen.getByRole("button", { name: /extract answers/i }))
+
+    expect(screen.getByText(/failed to analyze/i)).toBeInTheDocument()
+  })
+
+  it("calls onCancel when Back is clicked", async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    render(<MemoryImport onImport={vi.fn()} onCancel={onCancel} />)
+
+    await user.click(screen.getByRole("button", { name: "Back" }))
+
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+})
