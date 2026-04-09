@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Loader2, PenLine, Sparkles } from "lucide-react"
 import api from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -13,6 +13,7 @@ import {
   ProgressValue,
 } from "@/components/ui/progress"
 import { MemoryImport } from "@/components/onboarding/MemoryImport"
+import { useImportJobStore } from "@/store/import-job"
 
 const QUESTIONS = [
   "When your professional circle thinks of you in 10 years, what 3 words do you want them to use?",
@@ -38,8 +39,17 @@ interface LegacyExerciseProps {
 }
 
 export function LegacyExercise({ onComplete }: LegacyExerciseProps) {
+  const importJob = useImportJobStore()
+
+  // Resume from import job state on mount
+  const initialStep = importJob.jobId
+    ? importJob.status === "pending" || importJob.status === "running"
+      ? -2 // show import UI with background banner
+      : -1
+    : -1
+
   // step: -1 = entry chooser, -2 = import UI, 0-9 = questions, 10 = generating
-  const [step, setStep] = useState(-1)
+  const [step, setStep] = useState(initialStep)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [confidence, setConfidence] = useState<Record<string, string>>({})
   const [generating, setGenerating] = useState(false)
@@ -47,6 +57,26 @@ export function LegacyExercise({ onComplete }: LegacyExerciseProps) {
   const [editedDescription, setEditedDescription] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Auto-apply completed import results on mount or when job finishes
+  useEffect(() => {
+    if (importJob.status === "completed" && importJob.result && step <= 0) {
+      const filled = Object.values(importJob.result.answers).filter(
+        (v) => v.trim().length > 0
+      ).length
+      if (filled > 0) {
+        setAnswers(importJob.result.answers)
+        setConfidence(importJob.result.confidence)
+        setError(
+          filled < QUESTIONS.length
+            ? `Pre-filled ${filled} of ${QUESTIONS.length} answers. Please complete the rest.`
+            : null
+        )
+        setStep(0)
+        importJob.reset()
+      }
+    }
+  }, [importJob.status, importJob.result]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isChooser = step === -1
   const isImport = step === -2

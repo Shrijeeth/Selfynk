@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { createElement } from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { LegacyExercise } from "./LegacyExercise"
+import { useImportJobStore } from "@/store/import-job"
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -76,6 +77,7 @@ const MOCK_STATEMENT = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useImportJobStore.getState().reset()
 })
 
 describe("LegacyExercise", () => {
@@ -288,5 +290,48 @@ describe("LegacyExercise", () => {
     }
 
     expect(await screen.findByText(/failed to generate/i)).toBeInTheDocument()
+  })
+
+  // ── Resume from import job ─────────────────────────────────────
+
+  it("shows import UI when job is running on mount", () => {
+    useImportJobStore.getState().startJob("active-job")
+
+    render(<LegacyExercise onComplete={vi.fn()} />)
+
+    // Should show import UI (step=-2, mocked as memory-import), not chooser
+    expect(screen.queryByText("Answer 10 questions")).toBeNull()
+    expect(screen.getByTestId("memory-import")).toBeInTheDocument()
+  })
+
+  it("auto-applies completed import results on mount", () => {
+    useImportJobStore.getState().startJob("done-job")
+    useImportJobStore.getState().updateFromPoll({
+      status: "completed",
+      steps: [],
+      current_step: 0,
+      result: {
+        answers: {
+          q1: "bold",
+          q2: "edu",
+          q3: "build",
+          q4: "juniors",
+          q5: "sys",
+          q6: "culture",
+          q7: "honesty",
+          q8: "legacy",
+          q9: "fear",
+          q10: "write",
+        },
+        confidence: { q1: "high", q2: "medium" },
+      },
+      error: null,
+    })
+
+    render(<LegacyExercise onComplete={vi.fn()} />)
+
+    // Should auto-apply and go to Q1
+    expect(screen.getByText(/Q1\./)).toBeInTheDocument()
+    expect(screen.getByDisplayValue("bold")).toBeInTheDocument()
   })
 })
