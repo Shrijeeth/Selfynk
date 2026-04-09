@@ -111,25 +111,47 @@ def _chunk_text(text: str) -> list[str]:
     return chunks
 
 
+MAX_RETRIES = 5
+BASE_DELAY = 2.0
+MAX_CONCURRENCY = 2
+
+
 async def _summarize_chunk(chunk: str, chunk_index: int) -> str:
-    """Summarize a single chunk for identity-relevant information."""
-    agent = Agent(
-        model=get_model(),
-        system_message=CHUNK_SUMMARY_SYSTEM_PROMPT,
-    )
-    response = await agent.arun(
-        f"Here is chunk {chunk_index + 1} of the user's conversation history:\n\n{chunk}"
-    )
-    return response.content.strip() if response.content else ""
+    """Summarize a single chunk with retry on rate limit."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            agent = Agent(
+                model=get_model(),
+                system_message=CHUNK_SUMMARY_SYSTEM_PROMPT,
+            )
+            response = await agent.arun(
+                f"Here is chunk {chunk_index + 1} of the user's conversation history:\n\n{chunk}"
+            )
+            return response.content.strip() if response.content else ""
+        except Exception as e:
+            if "429" in str(e) and attempt < MAX_RETRIES - 1:
+                delay = BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Rate limited on chunk %d, retrying in %.1fs (attempt %d/%d)",
+                    chunk_index,
+                    delay,
+                    attempt + 1,
+                    MAX_RETRIES,
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
+    return ""
 
 
 MAX_SUMMARIZE_DEPTH = 3
 
 
 async def _chunk_and_summarize(text: str, depth: int = 0) -> str:
-    """Split text into chunks, summarize each in parallel, combine results.
+    """Split text into chunks, summarize with limited concurrency, combine.
 
-    If the combined summaries still exceed SUMMARY_THRESHOLD, recursively
+    Uses a semaphore to avoid overwhelming the API with parallel requests.
+    If combined summaries still exceed SUMMARY_THRESHOLD, recursively
     summarize again (up to MAX_SUMMARIZE_DEPTH levels).
     """
     chunks = _chunk_text(text)
@@ -140,8 +162,14 @@ async def _chunk_and_summarize(text: str, depth: int = 0) -> str:
         depth,
     )
 
+    semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+
+    async def _limited_summarize(chunk: str, i: int) -> str:
+        async with semaphore:
+            return await _summarize_chunk(chunk, i)
+
     summaries = await asyncio.gather(
-        *[_summarize_chunk(chunk, i) for i, chunk in enumerate(chunks)]
+        *[_limited_summarize(chunk, i) for i, chunk in enumerate(chunks)]
     )
 
     # Filter out empty or "no info" summaries
@@ -331,7 +359,25 @@ async def extract_legacy_answers(
     agent = build_memory_extractor_agent()
     prompt = _build_extraction_prompt(text)
 
-    response = await agent.arun(prompt)
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = await agent.arun(prompt)
+            break
+        except Exception as e:
+            if "429" in str(e) and attempt < MAX_RETRIES - 1:
+                delay = BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Rate limited on extraction, retrying in %.1fs (attempt %d/%d)",
+                    delay,
+                    attempt + 1,
+                    MAX_RETRIES,
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
+    else:
+        response = await agent.arun(prompt)
+
     raw: str = response.content if response.content else ""
     logger.debug("MemoryExtractor raw response: %s", raw[:200])
 
