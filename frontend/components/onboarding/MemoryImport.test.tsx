@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { MemoryImport } from "./MemoryImport"
+import { useImportJobStore } from "@/store/import-job"
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -15,6 +16,7 @@ const mockedApi = vi.mocked(api)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useImportJobStore.getState().reset()
 })
 
 describe("MemoryImport", () => {
@@ -90,19 +92,14 @@ describe("MemoryImport", () => {
     ).toBeEnabled()
   })
 
-  it("calls onImport on successful extraction via paste", async () => {
+  it("starts job on submit and stores job ID", async () => {
     const user = userEvent.setup()
-    const onImport = vi.fn()
 
     mockedApi.post.mockResolvedValueOnce({
-      data: {
-        answers: { q1: "bold", q2: "education" },
-        confidence: { q1: "high", q2: "medium" },
-        source_type: "raw",
-      },
+      data: { job_id: "abc123", status: "pending" },
     })
 
-    render(<MemoryImport onImport={onImport} onCancel={vi.fn()} />)
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
 
     await user.click(screen.getByText("Paste text"))
     await user.type(
@@ -111,21 +108,15 @@ describe("MemoryImport", () => {
     )
     await user.click(screen.getByRole("button", { name: /extract answers/i }))
 
-    expect(onImport).toHaveBeenCalledWith(
-      { q1: "bold", q2: "education" },
-      { q1: "high", q2: "medium" }
-    )
+    expect(useImportJobStore.getState().jobId).toBe("abc123")
+    expect(useImportJobStore.getState().status).toBe("pending")
   })
 
-  it("shows error when extraction returns no answers", async () => {
+  it("shows background banner when job is active", async () => {
     const user = userEvent.setup()
 
     mockedApi.post.mockResolvedValueOnce({
-      data: {
-        answers: { q1: "", q2: "" },
-        confidence: {},
-        source_type: "raw",
-      },
+      data: { job_id: "abc123", status: "pending" },
     })
 
     render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
@@ -133,9 +124,51 @@ describe("MemoryImport", () => {
     await user.click(screen.getByText("Paste text"))
     await user.type(
       screen.getByPlaceholderText(/paste your ai/i),
-      "random text"
+      "my conversations"
     )
     await user.click(screen.getByRole("button", { name: /extract answers/i }))
+
+    expect(screen.getByText(/running in the background/i)).toBeInTheDocument()
+  })
+
+  it("calls onImport when store completes", () => {
+    const onImport = vi.fn()
+
+    // Pre-set store to completed state
+    useImportJobStore.getState().startJob("test-job")
+    useImportJobStore.getState().updateFromPoll({
+      status: "completed",
+      steps: [],
+      current_step: 0,
+      result: {
+        answers: { q1: "bold", q2: "education" },
+        confidence: { q1: "high", q2: "medium" },
+      },
+      error: null,
+    })
+
+    render(<MemoryImport onImport={onImport} onCancel={vi.fn()} />)
+
+    expect(onImport).toHaveBeenCalledWith(
+      { q1: "bold", q2: "education" },
+      { q1: "high", q2: "medium" }
+    )
+  })
+
+  it("shows error when store result has no answers", () => {
+    useImportJobStore.getState().startJob("test-job")
+    useImportJobStore.getState().updateFromPoll({
+      status: "completed",
+      steps: [],
+      current_step: 0,
+      result: {
+        answers: { q1: "", q2: "" },
+        confidence: {},
+      },
+      error: null,
+    })
+
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
 
     expect(
       screen.getByText(/could not extract any answers/i)
@@ -152,7 +185,7 @@ describe("MemoryImport", () => {
     await user.type(screen.getByPlaceholderText(/paste your ai/i), "text")
     await user.click(screen.getByRole("button", { name: /extract answers/i }))
 
-    expect(screen.getByText(/failed to analyze/i)).toBeInTheDocument()
+    expect(screen.getByText(/failed to start/i)).toBeInTheDocument()
   })
 
   it("shows file list after uploading multiple files", async () => {
@@ -201,17 +234,12 @@ describe("MemoryImport", () => {
 
   it("sends multiple files in FormData on submit", async () => {
     const user = userEvent.setup()
-    const onImport = vi.fn()
 
     mockedApi.post.mockResolvedValueOnce({
-      data: {
-        answers: { q1: "bold" },
-        confidence: { q1: "high" },
-        source_type: "mixed",
-      },
+      data: { job_id: "xyz", status: "pending" },
     })
 
-    render(<MemoryImport onImport={onImport} onCancel={vi.fn()} />)
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
 
     const input = document.querySelector(
       'input[type="file"]'
@@ -227,9 +255,6 @@ describe("MemoryImport", () => {
     await user.upload(input, [file1, file2])
     await user.click(screen.getByRole("button", { name: /extract answers/i }))
 
-    expect(onImport).toHaveBeenCalledWith({ q1: "bold" }, { q1: "high" })
-
-    // Verify FormData contains both files
     const formData = mockedApi.post.mock.calls[0][1] as FormData
     const filesInForm = formData.getAll("files")
     expect(filesInForm).toHaveLength(2)

@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { TopBar } from "@/components/layout/TopBar"
 import { OnboardingGuard } from "@/components/providers/onboarding-guard"
+import { ImportProgress } from "@/components/onboarding/ImportProgress"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,6 +52,7 @@ export default function RootLayout({
                 </main>
               </div>
             </div>
+            <ImportProgress />
             <Toaster />
           </ThemeProvider>
         </QueryProvider>

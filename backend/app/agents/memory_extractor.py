@@ -147,13 +147,20 @@ async def _summarize_chunk(chunk: str, chunk_index: int) -> str:
 MAX_SUMMARIZE_DEPTH = 3
 
 
-async def _chunk_and_summarize(text: str, depth: int = 0) -> str:
+async def _chunk_and_summarize(
+    text: str,
+    depth: int = 0,
+    job_id: str | None = None,
+    step_index: int = 0,
+) -> str:
     """Split text into chunks, summarize with limited concurrency, combine.
 
     Uses a semaphore to avoid overwhelming the API with parallel requests.
     If combined summaries still exceed SUMMARY_THRESHOLD, recursively
     summarize again (up to MAX_SUMMARIZE_DEPTH levels).
     """
+    from app.services.job_store import import_job_store
+
     chunks = _chunk_text(text)
     logger.info(
         "Summarizing %d chunks from %d chars (depth=%d)",
@@ -162,11 +169,17 @@ async def _chunk_and_summarize(text: str, depth: int = 0) -> str:
         depth,
     )
 
+    if job_id and depth == 0:
+        import_job_store.start_step(job_id, step_index, total=len(chunks))
+
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
     async def _limited_summarize(chunk: str, i: int) -> str:
         async with semaphore:
-            return await _summarize_chunk(chunk, i)
+            result = await _summarize_chunk(chunk, i)
+            if job_id and depth == 0:
+                import_job_store.advance_step(job_id, step_index)
+            return result
 
     summaries = await asyncio.gather(
         *[_limited_summarize(chunk, i) for i, chunk in enumerate(chunks)]
@@ -191,7 +204,10 @@ async def _chunk_and_summarize(text: str, depth: int = 0) -> str:
             len(combined),
             depth + 1,
         )
-        return await _chunk_and_summarize(combined, depth + 1)
+        return await _chunk_and_summarize(combined, depth + 1, job_id, step_index)
+
+    if job_id and depth == 0:
+        import_job_store.finish_step(job_id, step_index)
 
     return combined
 
@@ -340,6 +356,7 @@ def build_memory_extractor_agent() -> Agent:
 
 async def extract_legacy_answers(
     text: str,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """Extract answers to 10 legacy questions from conversation text.
 
@@ -349,12 +366,25 @@ async def extract_legacy_answers(
 
     For smaller inputs, extracts directly in a single pass.
     """
-    if len(text) > SUMMARY_THRESHOLD:
+    from app.services.job_store import import_job_store
+
+    needs_chunking = len(text) > SUMMARY_THRESHOLD
+
+    # Step indices: 0=parse (done before this), 1=summarize (if needed), last=extract
+    summarize_step = 1
+    extract_step = 2 if needs_chunking else 1
+
+    if needs_chunking:
         logger.info("Large input (%d chars), using chunked summarization", len(text))
-        text = await _chunk_and_summarize(text)
+        text = await _chunk_and_summarize(text, job_id=job_id, step_index=summarize_step)
+    elif job_id:
+        import_job_store.skip_step(job_id, summarize_step)
 
     # Fallback truncation if summaries are still too long
     text = _truncate(text)
+
+    if job_id:
+        import_job_store.start_step(job_id, extract_step, total=1)
 
     agent = build_memory_extractor_agent()
     prompt = _build_extraction_prompt(text)
@@ -380,5 +410,8 @@ async def extract_legacy_answers(
 
     raw: str = response.content if response.content else ""
     logger.debug("MemoryExtractor raw response: %s", raw[:200])
+
+    if job_id:
+        import_job_store.finish_step(job_id, extract_step)
 
     return extract_json(raw)

@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Loader2, Upload, FileText, ChevronDown } from "lucide-react"
 import api from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { useImportJobStore } from "@/store/import-job"
 
 interface MemoryImportProps {
   onImport: (
@@ -19,17 +20,47 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
   const [tab, setTab] = useState<"upload" | "paste">("upload")
   const [files, setFiles] = useState<File[]>([])
   const [pastedText, setPastedText] = useState("")
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showInstructions, setShowInstructions] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const {
+    jobId,
+    status,
+    result,
+    error: jobError,
+    startJob,
+  } = useImportJobStore()
+  const loading = !!jobId && (status === "pending" || status === "running")
+
+  // Derive error from job state (no setState in effect)
+  const jobDerivedError =
+    status === "failed"
+      ? (jobError ??
+        "Failed to analyze the data. Please try again or answer manually.")
+      : status === "completed" &&
+          result &&
+          Object.values(result.answers).filter((v) => v.trim().length > 0)
+            .length === 0
+        ? "Could not extract any answers from this data. Try a different export or answer manually."
+        : null
+
+  // Only call onImport callback when job completes with results
+  useEffect(() => {
+    if (status !== "completed" || !result) return
+    const filled = Object.values(result.answers).filter(
+      (v) => v.trim().length > 0
+    ).length
+    if (filled > 0) {
+      onImport(result.answers, result.confidence)
+    }
+  }, [status, result, onImport])
 
   function removeFile(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
   async function handleSubmit() {
-    setLoading(true)
     setError(null)
 
     try {
@@ -42,34 +73,17 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
         formData.append("raw_text", pastedText)
       }
 
-      const res = await api.post<{
-        answers: Record<string, string>
-        confidence: Record<string, string>
-        source_type: string
-      }>("/api/v1/onboarding/import-memory", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      })
+      const res = await api.post<{ job_id: string; status: string }>(
+        "/api/v1/onboarding/import-memory",
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } }
+      )
 
-      const filled = Object.values(res.data.answers).filter(
-        (v) => v.trim().length > 0
-      ).length
-
-      if (filled === 0) {
-        setError(
-          "Could not extract any answers from this data. " +
-            "Try a different export or answer manually."
-        )
-        return
-      }
-
-      onImport(res.data.answers, res.data.confidence)
+      startJob(res.data.job_id)
     } catch {
       setError(
-        "Failed to analyze the data. Please try again " +
-          "or answer the questions manually."
+        "Failed to start the import. Please try again or answer manually."
       )
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -108,6 +122,14 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
           Paste text
         </button>
       </div>
+
+      {/* Loading banner */}
+      {loading && (
+        <div className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          <span>Import running in the background. You can navigate away.</span>
+        </div>
+      )}
 
       {/* Upload tab */}
       {tab === "upload" && (
@@ -151,7 +173,6 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
                 }
                 setFiles((prev) => [...prev, ...selected])
                 setError(null)
-                // Reset input so re-selecting the same file works
                 e.target.value = ""
               }}
             />
@@ -273,7 +294,9 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
       )}
 
       {/* Error */}
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {(error || jobDerivedError) && (
+        <p className="text-destructive text-sm">{error || jobDerivedError}</p>
+      )}
 
       {/* Actions */}
       <div className="flex gap-3">

@@ -64,3 +64,24 @@ class MemoryImportResponse(BaseModel):
     answers: dict[str, str]
     confidence: dict[str, str]
     source_type: str
+
+
+class ImportJobCreated(BaseModel):
+    job_id: str
+    status: str
+
+
+class ProgressStepRead(BaseModel):
+    label: str
+    total: int
+    completed: int
+    status: str
+
+
+class ImportJobStatus(BaseModel):
+    job_id: str
+    status: str
+    steps: list[ProgressStepRead] = []
+    current_step: int = 0
+    result: MemoryImportResponse | None = None
+    error: str | None = None

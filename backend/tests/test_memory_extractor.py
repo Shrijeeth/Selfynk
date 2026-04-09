@@ -349,7 +349,7 @@ async def test_extract_legacy_answers_large_input_uses_chunking(
         large_text = "x" * (SUMMARY_THRESHOLD + 1)
         result = await extract_legacy_answers(large_text)
 
-    mock_chunk_summarize.assert_awaited_once_with(large_text)
+    mock_chunk_summarize.assert_awaited_once_with(large_text, job_id=None, step_index=1)
     assert result["q1"] == "bold, kind, relentless"
 
 

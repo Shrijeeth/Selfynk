@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import create_db_and_tables
 from app.routers import analysis, input, onboarding
+from app.services.job_store import scheduler
 
 
 @asynccontextmanager
@@ -19,10 +20,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     Handle startup and shutdown events for the application.
     """
-    # Initialize database tables and start-up routines
     create_db_and_tables()
+    scheduler.start()
     yield
-    # Cleanup routines
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(

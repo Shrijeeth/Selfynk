@@ -17,14 +17,18 @@ from app.models.values import ValueItem
 from app.models.voice_sample import VoiceSample
 from app.schemas.onboarding import (
     DesiredBrandStatementRead,
+    ImportJobCreated,
+    ImportJobStatus,
     LegacyExerciseRequest,
     MemoryImportResponse,
     OnboardingStatus,
+    ProgressStepRead,
     ValueItemRead,
     ValuesRequest,
     VoiceSampleRead,
     VoiceSamplesRequest,
 )
+from app.services.job_store import import_job_store, scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -86,60 +90,113 @@ async def submit_legacy_exercise(
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 
 
-@router.post("/import-memory", response_model=MemoryImportResponse)
+async def _run_import_job(
+    job_id: str,
+    combined_text: str,
+    source_type: str,
+) -> None:
+    """Background task: run extraction and update job store with progress."""
+    import_job_store.set_running(job_id)
+    import_job_store.finish_step(job_id, 0)  # parsing already done
+
+    try:
+        result = await extract_legacy_answers(combined_text, job_id=job_id)
+
+        answers = {k: v for k, v in result.items() if k.startswith("q") and k != "confidence"}
+        confidence = result.get("confidence", {})
+
+        import_job_store.complete(
+            job_id,
+            {
+                "answers": answers,
+                "confidence": confidence,
+                "source_type": source_type,
+            },
+        )
+    except Exception as e:
+        logger.exception("Import job %s failed", job_id)
+        import_job_store.fail(job_id, str(e))
+
+
+@router.post("/import-memory", response_model=ImportJobCreated, status_code=202)
 async def import_memory(
     files: list[UploadFile] = File([]),
     raw_text: str | None = Form(None),
-) -> MemoryImportResponse:
+) -> ImportJobCreated:
     if not files and not raw_text:
         raise HTTPException(
             status_code=422,
             detail="Provide at least one file upload or raw_text.",
         )
 
-    try:
-        text_parts: list[str] = []
-        source_types: list[str] = []
+    # Parse files synchronously (fast) before handing off to background
+    text_parts: list[str] = []
+    source_types: list[str] = []
 
-        for f in files:
-            content = await f.read()
-            if len(content) > MAX_UPLOAD_SIZE:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"File '{f.filename}' is too large. Maximum size is 50MB.",
-                )
-            fmt = detect_format(content)
-            text_parts.append(parse_export(content, fmt))
-            source_types.append(fmt)
+    for f in files:
+        content = await f.read()
+        if len(content) > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{f.filename}' is too large. Maximum size is 50MB.",
+            )
+        fmt = detect_format(content)
+        text_parts.append(parse_export(content, fmt))
+        source_types.append(fmt)
 
-        if raw_text:
-            text_parts.append(raw_text)
-            source_types.append("raw")
+    if raw_text:
+        text_parts.append(raw_text)
+        source_types.append("raw")
 
-        combined_text = "\n\n".join(text_parts)
+    combined_text = "\n\n".join(text_parts)
+    unique_types = set(source_types)
+    source_type = unique_types.pop() if len(unique_types) == 1 else "mixed"
 
-        # Determine source_type: "mixed" if multiple different types
-        unique_types = set(source_types)
-        source_type = unique_types.pop() if len(unique_types) == 1 else "mixed"
+    # Create job with progress steps
+    job = import_job_store.create(
+        steps=[
+            "Parsing files",
+            "Summarizing chunks",
+            "Extracting answers",
+        ]
+    )
 
-        result = await extract_legacy_answers(combined_text)
+    # Schedule background extraction via APScheduler
+    scheduler.add_job(
+        _run_import_job,
+        args=[job.id, combined_text, source_type],
+        id=f"import-{job.id}",
+    )
 
-        answers = {k: v for k, v in result.items() if k.startswith("q") and k != "confidence"}
-        confidence = result.get("confidence", {})
+    return ImportJobCreated(job_id=job.id, status=job.status.value)
 
-        return MemoryImportResponse(
-            answers=answers,
-            confidence=confidence,
-            source_type=source_type,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Memory import failed")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to extract answers: {e!s}",
-        ) from e
+
+@router.get("/import-memory/{job_id}", response_model=ImportJobStatus)
+async def get_import_status(job_id: str) -> ImportJobStatus:
+    job = import_job_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    result = None
+    if job.result:
+        result = MemoryImportResponse(**job.result)
+
+    return ImportJobStatus(
+        job_id=job.id,
+        status=job.status.value,
+        steps=[
+            ProgressStepRead(
+                label=s.label,
+                total=s.total,
+                completed=s.completed,
+                status=s.status,
+            )
+            for s in job.steps
+        ],
+        current_step=job.current_step,
+        result=result,
+        error=job.error,
+    )
 
 
 @router.post("/values", response_model=list[ValueItemRead])
