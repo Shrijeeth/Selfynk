@@ -88,32 +88,41 @@ MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 
 @router.post("/import-memory", response_model=MemoryImportResponse)
 async def import_memory(
-    file: UploadFile | None = File(None),
+    files: list[UploadFile] = File([]),
     raw_text: str | None = Form(None),
 ) -> MemoryImportResponse:
-    if not file and not raw_text:
+    if not files and not raw_text:
         raise HTTPException(
             status_code=422,
-            detail="Provide either a file upload or raw_text.",
+            detail="Provide at least one file upload or raw_text.",
         )
 
     try:
-        if file:
-            content = await file.read()
+        text_parts: list[str] = []
+        source_types: list[str] = []
+
+        for f in files:
+            content = await f.read()
             if len(content) > MAX_UPLOAD_SIZE:
                 raise HTTPException(
                     status_code=413,
-                    detail="File too large. Maximum size is 50MB.",
+                    detail=f"File '{f.filename}' is too large. Maximum size is 50MB.",
                 )
             fmt = detect_format(content)
-            text = parse_export(content, fmt)
-            source_type = fmt
-        else:
-            text = raw_text or ""
-            source_type = "raw"
-            fmt = "raw"
+            text_parts.append(parse_export(content, fmt))
+            source_types.append(fmt)
 
-        result = await extract_legacy_answers(text)
+        if raw_text:
+            text_parts.append(raw_text)
+            source_types.append("raw")
+
+        combined_text = "\n\n".join(text_parts)
+
+        # Determine source_type: "mixed" if multiple different types
+        unique_types = set(source_types)
+        source_type = unique_types.pop() if len(unique_types) == 1 else "mixed"
+
+        result = await extract_legacy_answers(combined_text)
 
         answers = {k: v for k, v in result.items() if k.startswith("q") and k != "confidence"}
         confidence = result.get("confidence", {})

@@ -264,9 +264,9 @@ MOCK_EXTRACTION = {
     "app.routers.onboarding.extract_legacy_answers",
     new_callable=AsyncMock,
 )
-@patch("app.routers.onboarding.detect_format", return_value="raw")
+@patch("app.routers.onboarding.detect_format", return_value="chatgpt")
 @patch("app.routers.onboarding.parse_export", return_value="parsed text")
-async def test_import_memory_with_file(
+async def test_import_memory_with_single_file(
     mock_parse: AsyncMock,
     mock_detect: AsyncMock,
     mock_extract: AsyncMock,
@@ -276,13 +276,72 @@ async def test_import_memory_with_file(
 
     resp = await async_client.post(
         "/api/v1/onboarding/import-memory",
-        files={"file": ("test.json", b'[{"mapping": {}}]', "application/json")},
+        files=[("files", ("test.json", b'[{"mapping": {}}]', "application/json"))],
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["answers"]["q1"] == "bold"
     assert data["confidence"]["q1"] == "high"
-    assert data["source_type"] == "raw"
+    assert data["source_type"] == "chatgpt"
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.routers.onboarding.extract_legacy_answers",
+    new_callable=AsyncMock,
+)
+@patch("app.routers.onboarding.detect_format", side_effect=["chatgpt", "claude"])
+@patch("app.routers.onboarding.parse_export", side_effect=["chatgpt text", "claude text"])
+async def test_import_memory_with_multiple_files(
+    mock_parse: AsyncMock,
+    mock_detect: AsyncMock,
+    mock_extract: AsyncMock,
+    async_client: AsyncClient,
+) -> None:
+    mock_extract.return_value = MOCK_EXTRACTION
+
+    resp = await async_client.post(
+        "/api/v1/onboarding/import-memory",
+        files=[
+            ("files", ("chatgpt.json", b'[{"mapping": {}}]', "application/json")),
+            ("files", ("claude.jsonl", b'{"uuid":"x","chat_messages":[]}', "application/json")),
+        ],
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["source_type"] == "mixed"
+    # extract_legacy_answers should receive combined text
+    combined = mock_extract.call_args[0][0]
+    assert "chatgpt text" in combined
+    assert "claude text" in combined
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.routers.onboarding.extract_legacy_answers",
+    new_callable=AsyncMock,
+)
+@patch("app.routers.onboarding.detect_format", return_value="chatgpt")
+@patch("app.routers.onboarding.parse_export", return_value="file text")
+async def test_import_memory_files_plus_raw_text(
+    mock_parse: AsyncMock,
+    mock_detect: AsyncMock,
+    mock_extract: AsyncMock,
+    async_client: AsyncClient,
+) -> None:
+    mock_extract.return_value = MOCK_EXTRACTION
+
+    resp = await async_client.post(
+        "/api/v1/onboarding/import-memory",
+        files=[("files", ("test.json", b'[{"mapping": {}}]', "application/json"))],
+        data={"raw_text": "pasted memory text"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["source_type"] == "mixed"
+    combined = mock_extract.call_args[0][0]
+    assert "file text" in combined
+    assert "pasted memory text" in combined
 
 
 @pytest.mark.asyncio

@@ -17,12 +17,16 @@ interface MemoryImportProps {
 
 export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
   const [tab, setTab] = useState<"upload" | "paste">("upload")
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [pastedText, setPastedText] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showInstructions, setShowInstructions] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
 
   async function handleSubmit() {
     setLoading(true)
@@ -30,8 +34,10 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
 
     try {
       const formData = new FormData()
-      if (tab === "upload" && file) {
-        formData.append("file", file)
+      if (tab === "upload") {
+        for (const f of files) {
+          formData.append("files", f)
+        }
       } else if (tab === "paste" && pastedText.trim()) {
         formData.append("raw_text", pastedText)
       }
@@ -68,7 +74,7 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
   }
 
   const canSubmit =
-    (tab === "upload" && file !== null) ||
+    (tab === "upload" && files.length > 0) ||
     (tab === "paste" && pastedText.trim().length > 0)
 
   return (
@@ -115,42 +121,66 @@ export function MemoryImport({ onImport, onCancel }: MemoryImportProps) {
             }}
             className={cn(
               "flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-8 text-center transition-colors",
-              file
+              files.length > 0
                 ? "border-primary bg-primary/5"
                 : "border-border hover:border-primary/50"
             )}
           >
             <Upload className="text-muted-foreground size-6" />
-            {file ? (
-              <p className="text-sm font-medium">{file.name}</p>
-            ) : (
-              <>
-                <p className="text-sm font-medium">
-                  Drop your export file here or click to browse
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  Accepts .json or .jsonl files (max 50MB)
-                </p>
-              </>
-            )}
+            <p className="text-sm font-medium">
+              Drop your export files here or click to browse
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Accepts .json or .jsonl files (max 50MB each) &mdash; upload
+              multiple sources at once
+            </p>
             <input
               ref={fileRef}
               type="file"
               accept=".json,.jsonl"
+              multiple
               className="hidden"
               onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) {
-                  if (f.size > 50 * 1024 * 1024) {
-                    setError("File is too large. Maximum size is 50MB.")
-                    return
-                  }
-                  setFile(f)
-                  setError(null)
+                const selected = Array.from(e.target.files ?? [])
+                const tooBig = selected.find((f) => f.size > 50 * 1024 * 1024)
+                if (tooBig) {
+                  setError(
+                    `File "${tooBig.name}" is too large. Maximum size is 50MB.`
+                  )
+                  return
                 }
+                setFiles((prev) => [...prev, ...selected])
+                setError(null)
+                // Reset input so re-selecting the same file works
+                e.target.value = ""
               }}
             />
           </div>
+
+          {/* File list */}
+          {files.length > 0 && (
+            <ul className="space-y-1">
+              {files.map((f, i) => (
+                <li
+                  key={`${f.name}-${i}`}
+                  className="bg-muted/50 flex items-center justify-between rounded-md px-3 py-1.5 text-sm"
+                >
+                  <span className="flex items-center gap-1.5 truncate">
+                    <FileText className="text-muted-foreground size-3.5 shrink-0" />
+                    {f.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(i)}
+                    className="text-muted-foreground hover:text-destructive ml-2 text-xs"
+                    aria-label={`Remove ${f.name}`}
+                  >
+                    &times;
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
 
           {/* Export instructions */}
           <button

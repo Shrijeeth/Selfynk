@@ -28,7 +28,7 @@ describe("MemoryImport", () => {
   it("renders upload zone by default", () => {
     render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
 
-    expect(screen.getByText(/drop your export file/i)).toBeInTheDocument()
+    expect(screen.getByText(/drop your export files/i)).toBeInTheDocument()
   })
 
   it("switches to paste tab", async () => {
@@ -153,6 +153,86 @@ describe("MemoryImport", () => {
     await user.click(screen.getByRole("button", { name: /extract answers/i }))
 
     expect(screen.getByText(/failed to analyze/i)).toBeInTheDocument()
+  })
+
+  it("shows file list after uploading multiple files", async () => {
+    const user = userEvent.setup()
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    const input = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement
+
+    const file1 = new File(["data1"], "chatgpt.json", {
+      type: "application/json",
+    })
+    const file2 = new File(["data2"], "claude.jsonl", {
+      type: "application/json",
+    })
+
+    await user.upload(input, [file1, file2])
+
+    expect(screen.getByText("chatgpt.json")).toBeInTheDocument()
+    expect(screen.getByText("claude.jsonl")).toBeInTheDocument()
+  })
+
+  it("removes a file from the list", async () => {
+    const user = userEvent.setup()
+    render(<MemoryImport onImport={vi.fn()} onCancel={vi.fn()} />)
+
+    const input = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement
+
+    const file1 = new File(["data1"], "chatgpt.json", {
+      type: "application/json",
+    })
+    const file2 = new File(["data2"], "claude.jsonl", {
+      type: "application/json",
+    })
+
+    await user.upload(input, [file1, file2])
+
+    await user.click(screen.getByRole("button", { name: /remove chatgpt/i }))
+
+    expect(screen.queryByText("chatgpt.json")).toBeNull()
+    expect(screen.getByText("claude.jsonl")).toBeInTheDocument()
+  })
+
+  it("sends multiple files in FormData on submit", async () => {
+    const user = userEvent.setup()
+    const onImport = vi.fn()
+
+    mockedApi.post.mockResolvedValueOnce({
+      data: {
+        answers: { q1: "bold" },
+        confidence: { q1: "high" },
+        source_type: "mixed",
+      },
+    })
+
+    render(<MemoryImport onImport={onImport} onCancel={vi.fn()} />)
+
+    const input = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement
+
+    const file1 = new File(["data1"], "chatgpt.json", {
+      type: "application/json",
+    })
+    const file2 = new File(["data2"], "claude.jsonl", {
+      type: "application/json",
+    })
+
+    await user.upload(input, [file1, file2])
+    await user.click(screen.getByRole("button", { name: /extract answers/i }))
+
+    expect(onImport).toHaveBeenCalledWith({ q1: "bold" }, { q1: "high" })
+
+    // Verify FormData contains both files
+    const formData = mockedApi.post.mock.calls[0][1] as FormData
+    const filesInForm = formData.getAll("files")
+    expect(filesInForm).toHaveLength(2)
   })
 
   it("calls onCancel when Back is clicked", async () => {
