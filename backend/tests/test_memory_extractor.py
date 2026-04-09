@@ -6,6 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agents.memory_extractor import (
+    SUMMARY_THRESHOLD,
+    _chunk_and_summarize,
+    _chunk_text,
     _truncate,
     detect_format,
     extract_legacy_answers,
@@ -113,6 +116,97 @@ def test_parse_raw_text():
 def test_parse_raw_text_strips():
     result = parse_raw_text("  spaced  ")
     assert result == "spaced"
+
+
+# ── Chunking ───────────────────────────────────────────────────────
+
+
+def test_chunk_text_short():
+    chunks = _chunk_text("short text")
+    assert chunks == ["short text"]
+
+
+def test_chunk_text_splits_at_paragraph_boundary():
+    block_a = "a" * 10_000
+    block_b = "b" * 10_000
+    text = block_a + "\n\n" + block_b
+    chunks = _chunk_text(text)
+    assert len(chunks) == 2
+    assert chunks[0] == block_a
+    assert chunks[1] == block_b
+
+
+def test_chunk_text_splits_large_text():
+    text = "x" * 50_000
+    chunks = _chunk_text(text)
+    assert len(chunks) >= 3
+    reassembled = "".join(chunks)
+    assert reassembled == text
+
+
+@pytest.mark.asyncio
+@patch("app.agents.memory_extractor.get_model")
+async def test_chunk_and_summarize(mock_model: MagicMock) -> None:
+    mock_model.return_value = MagicMock()
+
+    # Create text large enough to produce multiple chunks
+    text = ("I value honesty and transparency. " * 500 + "\n\n") * 5
+
+    with patch("app.agents.memory_extractor._summarize_chunk") as mock_summarize:
+        mock_summarize.return_value = "User values honesty and transparency."
+        result = await _chunk_and_summarize(text)
+
+    assert mock_summarize.call_count >= 2
+    assert "honesty and transparency" in result
+
+
+@pytest.mark.asyncio
+@patch("app.agents.memory_extractor.get_model")
+async def test_chunk_and_summarize_recurses_when_combined_too_large(
+    mock_model: MagicMock,
+) -> None:
+    mock_model.return_value = MagicMock()
+
+    text = "x" * 60_000
+
+    call_count = 0
+
+    async def mock_summarize(chunk: str, _idx: int) -> str:
+        nonlocal call_count
+        call_count += 1
+        # First pass: return large summaries that exceed SUMMARY_THRESHOLD combined
+        if len(chunk) > 10_000:
+            return "y" * 10_000
+        # Second pass (recursion): return short summaries
+        return "User values impact."
+
+    with patch("app.agents.memory_extractor._summarize_chunk", side_effect=mock_summarize):
+        result = await _chunk_and_summarize(text)
+
+    # Should have been called more times than initial chunks (recursed)
+    initial_chunks = len(_chunk_text(text))
+    assert call_count > initial_chunks
+    assert "impact" in result
+
+
+@pytest.mark.asyncio
+@patch("app.agents.memory_extractor.get_model")
+async def test_chunk_and_summarize_filters_empty(mock_model: MagicMock) -> None:
+    mock_model.return_value = MagicMock()
+
+    text = "x" * 40_000
+
+    with patch("app.agents.memory_extractor._summarize_chunk") as mock_summarize:
+        mock_summarize.side_effect = [
+            "User cares about impact.",
+            "No identity-relevant information found.",
+            "User wants to mentor others.",
+        ]
+        result = await _chunk_and_summarize(text)
+
+    assert "impact" in result
+    assert "mentor" in result
+    assert "No identity-relevant" not in result
 
 
 # ── Truncation ──────────────────────────────────────────────────────
@@ -233,6 +327,52 @@ async def test_extract_legacy_answers_prompt_contains_questions(
     assert "Q1:" in prompt
     assert "Q10:" in prompt
     assert "my conversations" in prompt
+
+
+@pytest.mark.asyncio
+@patch("app.agents.memory_extractor._chunk_and_summarize", new_callable=AsyncMock)
+@patch("app.agents.memory_extractor.get_model")
+async def test_extract_legacy_answers_large_input_uses_chunking(
+    mock_model: MagicMock,
+    mock_chunk_summarize: AsyncMock,
+) -> None:
+    mock_model.return_value = MagicMock()
+    mock_chunk_summarize.return_value = "User values honesty."
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(MOCK_EXTRACTION)
+
+    with patch("app.agents.memory_extractor.build_memory_extractor_agent") as mock_build:
+        mock_agent = AsyncMock()
+        mock_agent.arun.return_value = mock_response
+        mock_build.return_value = mock_agent
+
+        large_text = "x" * (SUMMARY_THRESHOLD + 1)
+        result = await extract_legacy_answers(large_text)
+
+    mock_chunk_summarize.assert_awaited_once_with(large_text)
+    assert result["q1"] == "bold, kind, relentless"
+
+
+@pytest.mark.asyncio
+@patch("app.agents.memory_extractor._chunk_and_summarize", new_callable=AsyncMock)
+@patch("app.agents.memory_extractor.get_model")
+async def test_extract_legacy_answers_small_input_skips_chunking(
+    mock_model: MagicMock,
+    mock_chunk_summarize: AsyncMock,
+) -> None:
+    mock_model.return_value = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(MOCK_EXTRACTION)
+
+    with patch("app.agents.memory_extractor.build_memory_extractor_agent") as mock_build:
+        mock_agent = AsyncMock()
+        mock_agent.arun.return_value = mock_response
+        mock_build.return_value = mock_agent
+
+        small_text = "I value honesty"
+        await extract_legacy_answers(small_text)
+
+    mock_chunk_summarize.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -3,8 +3,13 @@ MemoryExtractor — extracts legacy exercise answers from AI conversation export
 
 Parses ChatGPT and Claude export formats, then uses an LLM to infer
 answers to each of the 10 legacy design questions.
+
+For large exports, uses a two-pass approach:
+1. Chunk the text and summarize each chunk for identity-relevant info
+2. Combine summaries and extract answers from the combined context
 """
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -18,6 +23,29 @@ from app.agents.utils import extract_json
 logger = logging.getLogger(__name__)
 
 MAX_TEXT_LENGTH = 80_000
+CHUNK_SIZE = 15_000
+SUMMARY_THRESHOLD = 30_000
+
+CHUNK_SUMMARY_SYSTEM_PROMPT = """\
+You are an identity extraction specialist. You are reading one chunk of \
+a user's AI conversation history.
+
+Extract ONLY information relevant to the user's professional identity:
+- Values, beliefs, principles they hold
+- Career goals, aspirations, legacy they want to leave
+- Skills, expertise, what they're known for
+- Who they impact and how
+- What drives them, what they care about
+- Professional challenges or growth areas
+- Bold actions or ambitions they've mentioned
+
+Ignore small talk, technical debugging, and anything unrelated to identity.
+
+Return a concise summary (under 2000 chars) of identity-relevant findings. \
+Use the user's own words where possible. If this chunk has no relevant \
+information, return "No identity-relevant information found."
+
+Return ONLY the summary text. No JSON, no markdown formatting."""
 
 EXTRACTION_SYSTEM_PROMPT = """\
 You are an identity extraction specialist for Selfynk.
@@ -60,6 +88,86 @@ def _truncate(text: str) -> str:
     return head + "\n\n[... truncated ...]\n\n" + tail
 
 
+def _chunk_text(text: str) -> list[str]:
+    """Split text into chunks of ~CHUNK_SIZE characters at paragraph boundaries."""
+    if len(text) <= CHUNK_SIZE:
+        return [text]
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = start + CHUNK_SIZE
+        if end >= len(text):
+            chunks.append(text[start:])
+            break
+        # Try to break at a paragraph boundary
+        boundary = text.rfind("\n\n", start, end)
+        if boundary > start:
+            chunks.append(text[start:boundary])
+            start = boundary + 2
+        else:
+            chunks.append(text[start:end])
+            start = end
+    return chunks
+
+
+async def _summarize_chunk(chunk: str, chunk_index: int) -> str:
+    """Summarize a single chunk for identity-relevant information."""
+    agent = Agent(
+        model=get_model(),
+        system_message=CHUNK_SUMMARY_SYSTEM_PROMPT,
+    )
+    response = await agent.arun(
+        f"Here is chunk {chunk_index + 1} of the user's conversation history:\n\n{chunk}"
+    )
+    return response.content.strip() if response.content else ""
+
+
+MAX_SUMMARIZE_DEPTH = 3
+
+
+async def _chunk_and_summarize(text: str, depth: int = 0) -> str:
+    """Split text into chunks, summarize each in parallel, combine results.
+
+    If the combined summaries still exceed SUMMARY_THRESHOLD, recursively
+    summarize again (up to MAX_SUMMARIZE_DEPTH levels).
+    """
+    chunks = _chunk_text(text)
+    logger.info(
+        "Summarizing %d chunks from %d chars (depth=%d)",
+        len(chunks),
+        len(text),
+        depth,
+    )
+
+    summaries = await asyncio.gather(
+        *[_summarize_chunk(chunk, i) for i, chunk in enumerate(chunks)]
+    )
+
+    # Filter out empty or "no info" summaries
+    useful = [s for s in summaries if s and "no identity-relevant information" not in s.lower()]
+
+    combined = "\n\n---\n\n".join(useful)
+    logger.info(
+        "Combined %d useful summaries into %d chars (from %d total, depth=%d)",
+        len(useful),
+        len(combined),
+        len(summaries),
+        depth,
+    )
+
+    # If combined summaries are still too large, recurse
+    if len(combined) > SUMMARY_THRESHOLD and depth < MAX_SUMMARIZE_DEPTH:
+        logger.info(
+            "Combined summaries still too large (%d chars), recursing (depth=%d)",
+            len(combined),
+            depth + 1,
+        )
+        return await _chunk_and_summarize(combined, depth + 1)
+
+    return combined
+
+
 def parse_chatgpt_export(raw: bytes) -> str:
     """Parse ChatGPT conversations.json export."""
     data = json.loads(raw)
@@ -85,7 +193,7 @@ def parse_chatgpt_export(raw: bytes) -> str:
                 if isinstance(part, str) and part.strip():
                     messages.append(part.strip())
 
-    return _truncate("\n\n".join(messages))
+    return "\n\n".join(messages)
 
 
 def parse_claude_export(raw: bytes) -> str:
@@ -107,12 +215,12 @@ def parse_claude_export(raw: bytes) -> str:
             if isinstance(content, str) and content.strip():
                 messages.append(content.strip())
 
-    return _truncate("\n\n".join(messages))
+    return "\n\n".join(messages)
 
 
 def parse_raw_text(text: str) -> str:
-    """Passthrough with truncation."""
-    return _truncate(text.strip())
+    """Passthrough with strip."""
+    return text.strip()
 
 
 def _detect_json_array_format(text: str) -> str | None:
@@ -205,7 +313,21 @@ def build_memory_extractor_agent() -> Agent:
 async def extract_legacy_answers(
     text: str,
 ) -> dict[str, Any]:
-    """Extract answers to 10 legacy questions from conversation text."""
+    """Extract answers to 10 legacy questions from conversation text.
+
+    For large inputs (>SUMMARY_THRESHOLD chars), uses a two-pass approach:
+    1. Chunk the text and summarize each chunk for identity-relevant info
+    2. Combine summaries and extract answers from the combined context
+
+    For smaller inputs, extracts directly in a single pass.
+    """
+    if len(text) > SUMMARY_THRESHOLD:
+        logger.info("Large input (%d chars), using chunked summarization", len(text))
+        text = await _chunk_and_summarize(text)
+
+    # Fallback truncation if summaries are still too long
+    text = _truncate(text)
+
     agent = build_memory_extractor_agent()
     prompt = _build_extraction_prompt(text)
 
